@@ -22,9 +22,11 @@ function fit() {
   const top = vv ? vv.offsetTop : 0
   const keyboard = window.innerHeight - h > 120
   // An installed iPhone app with a see-through status bar is drawn from the very top of the screen, but iOS
-  // reports the height minus the status bar, which left a blank band under the tab bar. With the keyboard
-  // closed, use the whole screen; with it open, the visual viewport is what's visible above it.
-  if (standalone && iOS && !keyboard) h = Math.max(h, screenHeight())
+  // reports (and paints) only the screen height minus the status bar. The strip left at the bottom can't hold
+  // anything tappable, so it serves as the home-indicator area: bars drop their own bottom padding by that
+  // much, and the page colour behind fills the strip.
+  const short = standalone && iOS && !keyboard ? Math.max(0, screenHeight() - window.innerHeight) : 0
+  root.style.setProperty('--vp-short', `${Math.round(short)}px`)
   applied = h
   root.style.setProperty('--app-h', `${Math.round(h)}px`)
   root.style.setProperty('--app-top', `${Math.round(top)}px`)
@@ -49,6 +51,7 @@ export function describe() {
     `visual vp     ${vv ? `${Math.round(vv.width)}×${Math.round(vv.height)} top ${Math.round(vv.offsetTop)}` : 'n/a'}`,
     `app box       ${app ? `${Math.round(app.top)}..${Math.round(app.bottom)}` : 'n/a'} (sized ${Math.round(applied)})`,
     `keyboard      ${root.classList.contains('keyboard') ? 'open' : 'closed'}`,
+    `strip below   ${getComputedStyle(root).getPropertyValue('--vp-short') || '0px'}`,
     `safe area     ${safe} (top / bottom)`,
     `standalone    ${Boolean(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`,
     `user agent    ${navigator.userAgent.replace(/^Mozilla\/5\.0 /, '').slice(0, 90)}`,

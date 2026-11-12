@@ -686,3 +686,12 @@ button.result:hover { background: var(--surface-2); }
   .jump { bottom: 84px; }
   .day { margin: 16px 0 8px; }
 }
+
+/* Bottom safe area, minus any strip the installed iPhone app already leaves below the page (see viewport.js). */
+:root { --bottom-gap: max(0px, calc(env(safe-area-inset-bottom) - var(--vp-short, 0px))); }
+@media (max-width: 860px) {
+  .tabbar { padding-bottom: max(2px, var(--bottom-gap)); }
+  .composer-wrap { padding-bottom: max(8px, var(--bottom-gap)); }
+  /* The strip below the page shows the page colour: the tab bar's on tabbed pages, the conversation's in a session. */
+  html:has(.app.in-session), html:has(.app.in-session) body { background: var(--bg); }
+}

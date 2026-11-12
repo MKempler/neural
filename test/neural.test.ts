@@ -474,6 +474,24 @@ test('a reconnect does not count as a failed delivery attempt', async () => {
   assert.equal(row?.attempts, 0)
 })
 
+test('the app sees what a session is doing, and Stop interrupts it', async () => {
+  const { describeTool } = await import('../server/src/router.ts')
+  assert.equal(describeTool('Edit', { file_path: '/repo/src/auth.ts' }), 'Editing auth.ts')
+  assert.equal(describeTool('Bash', { command: 'ls -la\nrm x' }), 'Running ls -la')
+  assert.equal(describeTool('mcp__neural__send_message', { to: 'api' }), 'Messaging api')
+  assert.equal(describeTool('WebFetch', { url: 'https://example.com/a' }), 'Reading example.com')
+
+  await idle('main')
+  await say('main', 'slow please')
+  const live = await until('activity event', () => seen.find(e => e.type === 'activity' && e.session === 'main' && e.activity?.text === 'Running the test suite'))
+  assert.ok(live.activity.since > 0)
+  assert.equal((await session('main')).activity.text, 'Running the test suite')
+  assert.equal((await api('POST', '/api/sessions/main/interrupt')).status, 200)
+  await until('activity cleared', () => seen.some(e => e.type === 'activity' && e.session === 'main' && e.activity === null && seen.indexOf(e) > seen.indexOf(live)))
+  await idle('main')
+  assert.equal((await session('main')).activity, null)
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

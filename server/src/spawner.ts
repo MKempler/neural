@@ -10,7 +10,8 @@ import type { Mux } from './mux/mux.ts'
 export const mux: Mux = new Tmux(config.tmuxSocket)
 
 // PostToolUse is only a heartbeat: it tells the hub a turn is still making progress.
-const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'Notification', 'SessionEnd', 'PreCompact']
+// PreToolUse feeds the live activity line; PostToolUse is a heartbeat that says a turn is still making progress.
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'SessionEnd', 'PreCompact']
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const RESERVED = new Set(['user', 'system', 'all', 'hub', 'neural'])
 const MAX_RESTARTS = 5

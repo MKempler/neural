@@ -24,7 +24,7 @@ export function Home() {
       <${StatusLine} needs=${needs} />
     </header>
 
-    ${main && html`<${Composer} variant="quick" placeholder=${`Message ${main.name}…`}
+    ${main && html`<${Composer} variant="quick" draftKey="home" placeholder=${`Message ${main.name}…`}
       hint=${html`<span class="to">→ ${main.name}</span>`}
       onSend=${async (body, files) => { await send(main.name, body, files); navigate(sessionPath(main.name)) }} />`}
 

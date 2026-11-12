@@ -1,14 +1,14 @@
 // The ⌘K palette and the New session sheet.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { html, api, shortPath, ago, local, unmark } from '../lib.js'
+import { html, api, shortPath, ago, local, unmark, excerpt } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Dot, useAutosize } from './parts.js'
 import { Highlight } from '../views/Lists.js'
 import {
-  lightbox, paletteOpen, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
+  switcherOpen, totalUnread, lightbox, paletteOpen, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
 } from '../store.js'
 
-function Overlay({ onClose, children, label }) {
+export function Overlay({ onClose, children, label }) {
   useEffect(() => {
     const esc = e => e.key === 'Escape' && onClose()
     document.addEventListener('keydown', esc)
@@ -17,6 +17,37 @@ function Overlay({ onClose, children, label }) {
   return html`<div class="overlay" role="dialog" aria-modal="true" aria-label=${label} onPointerDown=${e => e.target === e.currentTarget && onClose()}>
     ${children}
   </div>`
+}
+
+// ---------------------------------------------------------------------------------------------
+// Session switcher: tap a session's name on the phone to jump to another without going back to Home.
+
+export function SessionSwitcher() {
+  if (!switcherOpen.value) return null
+  const close = () => (switcherOpen.value = false)
+  const current = route.value.view === 'session' ? route.value.name : null
+  const go = name => {
+    close()
+    navigate(sessionPath(name), { replace: route.value.view === 'session' })
+  }
+  return html`<${Overlay} onClose=${close} label="Switch session">
+    <div class="sheet switcher">
+      <div class="sheet-head"><h2>Sessions</h2>
+        <button class="btn ghost icon-only" aria-label="Close" onClick=${close}><${Icon} name="x" /></button></div>
+      <div class="list">
+        ${sessionList.value.map(s => html`<button class=${`item ${s.name === current ? 'sel' : ''}`} key=${s.name} onClick=${() => go(s.name)}>
+          <${Dot} status=${s.status} />
+          <span class="main"><span class="txt mono">${s.name}</span>
+            <span class="sub">${s.status === 'blocked' ? 'Needs your approval' : s.status === 'working' && s.activity ? s.activity.text : s.last_message ? excerpt(s.last_message) : shortPath(s.cwd, 40)}</span></span>
+          ${s.unread > 0 && html`<span class="badge">${s.unread}</span>`}
+        </button>`)}
+      </div>
+      <div class="sheet-foot">
+        <button class="btn ghost" onClick=${() => { close(); navigate('/') }}><${Icon} name="home" />Home</button>
+        <button class="btn" onClick=${() => { close(); newSessionOpen.value = true }}><${Icon} name="plus" />New session</button>
+      </div>
+    </div>
+  </${Overlay}>`
 }
 
 // ---------------------------------------------------------------------------------------------

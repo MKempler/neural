@@ -42,6 +42,31 @@ export function toggleViewportInfo() {
   viewportInfo.value = viewportInfo.value ? '' : describe()
 }
 
+// Installed iPhone apps have a WebKit bug: after the keyboard closes, the viewport can stay shrunk until the
+// app is force-quit, leaving a band at the bottom. Briefly hiding and showing the full-height app makes
+// WebKit measure again. Only done when the height really is stuck, and scroll positions are kept.
+let tallest = window.innerHeight
+const typing = () => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName ?? '') || document.activeElement?.isContentEditable
+function heal() {
+  if (typing()) return
+  if (tallest - window.innerHeight <= 4) return
+  const app = document.querySelector('.app')
+  if (!app) return
+  const scrollers = [...document.querySelectorAll('.thread, .scroll')].map(el => [el, el.scrollTop])
+  app.style.display = 'none'
+  void app.offsetHeight
+  app.style.display = ''
+  for (const [el, top] of scrollers) el.scrollTop = top
+  fit()
+}
+addEventListener('resize', () => {
+  if (!typing()) tallest = Math.max(tallest, window.innerHeight)
+})
+addEventListener('orientationchange', () => (tallest = 0))
+document.addEventListener('focusout', () => setTimeout(heal, 160))
+document.addEventListener('visibilitychange', () => !document.hidden && setTimeout(heal, 200))
+addEventListener('pageshow', () => setTimeout(heal, 200))
+
 fit()
 vv?.addEventListener('resize', fit)
 vv?.addEventListener('scroll', fit)

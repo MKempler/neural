@@ -22,6 +22,19 @@ export const turns = new Map<string, { startedAt: number; replied: boolean; forU
 /** When each session last showed a sign of life (a hook fired or it called a hub tool). */
 export const activity = new Map<string, number>()
 
+/** What each session is doing right now ("Editing auth.ts"), shown live in the app while a turn runs. */
+export const doing = new Map<string, { text: string; since: number }>()
+
+export function setDoing(name: string, text: string | null) {
+  if (text === null) {
+    if (!doing.delete(name)) return
+  } else {
+    const since = turns.get(name)?.startedAt ?? doing.get(name)?.since ?? Date.now()
+    doing.set(name, { text, since })
+  }
+  broadcast({ type: 'activity', session: name, activity: doing.get(name) ?? null })
+}
+
 export function broadcast(event: Record<string, unknown>) {
   const data = JSON.stringify(event)
   for (const ws of uiClients) if (ws.readyState === 1) ws.send(data)
@@ -39,6 +52,7 @@ export function setStatus(name: string, status: string, detail: string | null = 
   if (!before) return
   if (before.status === status && before.status_detail === detail) return
   sessions.update(name, { status, status_detail: detail })
+  if (status !== 'working' && status !== 'blocked') setDoing(name, null)
   sessionChanged(name)
   bus.emit(`status:${name}`, status)
   if (status === 'attention' || status === 'exited') bus.emit('trouble', name, status, detail)

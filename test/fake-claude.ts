@@ -60,7 +60,12 @@ if (name?.startsWith('dlg') && !arg('--resume')) {
 console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId}`)
 
 const client = new Client({ name: 'fake-claude', version: '0' }, { capabilities: {} })
-const call = (tool: string, args: Record<string, unknown>) => client.callTool({ name: tool, arguments: args })
+// Like Claude Code, announce each tool call to the PreToolUse hook first.
+const call = async (tool: string, args: Record<string, unknown>) => {
+  await hook('PreToolUse', { tool_name: `mcp__neural__${tool}`, tool_input: args })
+  return client.callTool({ name: tool, arguments: args })
+}
+let interruptible: (() => void) | null = null
 
 client.fallbackNotificationHandler = async (n: any) => {
   if (n.method === 'notifications/claude/channel/permission') {
@@ -73,6 +78,13 @@ client.fallbackNotificationHandler = async (n: any) => {
   const { msg_id, from } = n.params.meta
   console.log(`← hub: ${body}`)
   if (body.startsWith('silent')) return // as if the event had been dropped
+  if (body.startsWith('slow')) {
+    // A long turn that only ends when Esc is pressed in the terminal.
+    await hook('UserPromptSubmit', { prompt: body })
+    await hook('PreToolUse', { tool_name: 'Bash', tool_input: { command: 'npm test', description: 'Running the test suite' } })
+    interruptible = () => void hook('Stop', { last_assistant_message: 'Interrupted.' })
+    return
+  }
   await hook('UserPromptSubmit', { prompt: `<channel source="neural" from="${from}" msg_id="${msg_id}">\n${body}\n</channel>` })
   if (body.startsWith('echo:')) return hook('Stop', { last_assistant_message: 'Noted.' }) // don't ping-pong between sessions
   if (body.startsWith('noreply')) return hook('Stop', { last_assistant_message: `terminal answer to ${msg_id}` })
@@ -115,6 +127,11 @@ process.stdin.on('data', async d => {
     if (k === '\x1b[200~') pasting = true
     else if (k === '\x1b[201~') pasting = false
     else if (k === '\x03') process.exit(130)
+    else if (k === '\x1b' && interruptible) {
+      const stop = interruptible
+      interruptible = null
+      stop()
+    }
     else if (k === '\r' && !pasting) {
       const text = typed.trim()
       typed = ''

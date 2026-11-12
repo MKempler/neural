@@ -7,7 +7,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { ROOT, config } from './config.ts'
 import { sessions, messages, permissions, events, reads } from './db.ts'
 import { searchAll, embedPending, embeddingStatus } from './embed.ts'
-import { channels, uiClients, broadcast, bus } from './live.ts'
+import { channels, uiClients, broadcast, bus, doing } from './live.ts'
 import {
   sendMessage, handleHook, handleTool, channelConnected, channelDisconnected,
   permissionRequested, decidePermission, retryStale, flush,
@@ -60,7 +60,7 @@ function checkBrowser(req: http.IncomingMessage) {
 }
 
 function withSummary(s: ReturnType<typeof sessions.all>[number]) {
-  return { ...s, last_message: reads.last(s.name), unread: reads.unread(s.name) }
+  return { ...s, last_message: reads.last(s.name), unread: reads.unread(s.name), activity: doing.get(s.name) ?? null }
 }
 
 /** First name for the greeting: config.json, then the Tailscale identity of the request, else nothing. */
@@ -122,6 +122,12 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         const action = parts[2]
         if (action === 'stop') return stopSession(name).then(() => sessions.get(name))
         if (action === 'restart') return restartSession(name)
+        if (action === 'interrupt') {
+          // Esc stops Claude Code's current turn, the same as pressing it in the terminal.
+          if (!sessions.get(name)) throw new HttpError(404, 'unknown session')
+          await mux.sendKeys(name, ['Escape'])
+          return { ok: true }
+        }
         if (action === 'keys') {
           const { keys } = await readJson(req)
           if (!Array.isArray(keys) || keys.some(k => typeof k !== 'string')) throw new HttpError(400, 'keys must be an array of strings')

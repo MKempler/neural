@@ -14,6 +14,9 @@ export const threads = signal(/** @type {Record<string, any[]>} */ ({})) // per 
 export const route = signal(parse(location))
 export const paletteOpen = signal(false)
 export const newSessionOpen = signal(false)
+export const switcherOpen = signal(false)
+/** Messages shown before the server has them: sending, queued while offline, or failed. Kept across reloads. */
+export const pendingSends = signal(local.get('neural.pending', []).map(p => ({ ...p, delivery: p.delivery === 'sending' ? 'queued' : p.delivery })))
 export const lightbox = signal(/** @type {null | { items: any[], index: number }} */ (null))
 
 export const sessionList = computed(() => {
@@ -101,6 +104,7 @@ export function connect() {
     } catch {
       // the next reconnect tries again
     }
+    flushQueued()
   }
   socket.onclose = () => {
     connected.value = false
@@ -164,6 +168,9 @@ function handle(ev) {
     case 'read':
       patchSession(ev.session, { unread: ev.unread })
       break
+    case 'activity':
+      patchSession(ev.session, { activity: ev.activity })
+      break
     case 'permission':
       permissions.value = [...permissions.value.filter(p => p.id !== ev.request.id), ev.request]
       break
@@ -223,6 +230,57 @@ export async function send(to, body, attachments = []) {
   const m = await api('POST', '/api/messages', { to, body, attachments })
   handle({ type: 'message', message: m })
   return m
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sending without waiting: the message shows at once, and is retried or queued if the network is away.
+
+let nextPending = Date.now()
+function savePending(list) {
+  pendingSends.value = list
+  local.set('neural.pending', list)
+}
+const patchPending = (key, fields) => savePending(pendingSends.value.map(p => (p.key === key ? { ...p, ...fields } : p)))
+
+async function deliver(p) {
+  patchPending(p.key, { delivery: 'sending' })
+  try {
+    const m = await api('POST', '/api/messages', { to: p.to_name, body: p.body, attachments: p.attachmentIds })
+    savePending(pendingSends.value.filter(x => x.key !== p.key))
+    handle({ type: 'message', message: m })
+  } catch (e) {
+    // No connection: wait for it to come back. Anything else (session removed, file already sent): show it failed.
+    const offline = !connected.value || /Failed to fetch|NetworkError|Load failed/i.test(e.message)
+    patchPending(p.key, { delivery: offline ? 'queued' : 'failed', error: offline ? '' : e.message })
+  }
+}
+
+/** Show the message straight away and send it in the background. */
+export function sendNow(to, body, attachments = [], previews = []) {
+  const p = {
+    key: `p${nextPending++}`, id: null, from_name: 'user', to_name: to, body, ts: new Date().toISOString(),
+    source: 'ui', attachmentIds: attachments, attachments: previews, delivery: connected.value ? 'sending' : 'queued',
+  }
+  savePending([...pendingSends.value, p])
+  if (connected.value) deliver(p)
+}
+
+export const retrySend = key => {
+  const p = pendingSends.value.find(x => x.key === key)
+  if (p) deliver(p)
+}
+export const discardSend = key => savePending(pendingSends.value.filter(x => x.key !== key))
+
+function flushQueued() {
+  for (const p of pendingSends.value) if (p.delivery === 'queued' || p.delivery === 'sending') deliver(p)
+}
+
+export const interrupt = name => api('POST', `/api/sessions/${encodeURIComponent(name)}/interrupt`)
+
+/** Unsent text per session, kept on this device. */
+export const drafts = {
+  get: key => local.get(`neural.draft.${key}`, ''),
+  set: (key, text) => local.set(`neural.draft.${key}`, text),
 }
 
 export const sessionAction = (name, action) => api('POST', `/api/sessions/${encodeURIComponent(name)}/${action}`)

@@ -1,7 +1,7 @@
 import { config } from './config.ts'
 import { sessions, messages, outbox, events, permissions, type Message } from './db.ts'
 import { searchAll } from './embed.ts'
-import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, activity } from './live.ts'
+import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
 import { notify } from './push.ts'
 import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, summary } from './files.ts'
 import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName } from './spawner.ts'
@@ -89,6 +89,10 @@ export function handleHook(name: string, event: string, payload: any) {
   const s = sessions.get(name)
   if (!s) return
   activity.set(name, Date.now())
+  if (event === 'PreToolUse') {
+    setDoing(name, describeTool(String(payload?.tool_name ?? ''), payload?.tool_input ?? {}))
+    return
+  }
   if (event === 'PostToolUse') return // heartbeat only
   events.add(name, `hook:${event}`, payload)
 
@@ -112,6 +116,7 @@ export function handleHook(name: string, event: string, payload: any) {
       }
       turns.set(name, { startedAt: Date.now(), replied: false, forUser })
       setStatus(name, 'working')
+      setDoing(name, 'Thinking')
       break
     }
     case 'Notification':
@@ -121,15 +126,51 @@ export function handleHook(name: string, event: string, payload: any) {
       }
       break
     case 'Stop':
+      setDoing(name, null)
       onTurnEnd(name, payload)
       break
     case 'SessionEnd':
       // The user quit Claude in its terminal: treat that as a deliberate stop, not a crash to recover from.
+      setDoing(name, null)
       if (['prompt_input_exit', 'logout'].includes(payload?.reason)) {
         permissions.expire(name)
         setStatus(name, 'stopped', 'Exited from the terminal')
       }
       break
+  }
+}
+
+const base = (p: unknown) => String(p ?? '').split('/').filter(Boolean).pop() ?? ''
+const clip = (s: string, n = 60) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
+
+/** One short line for the live activity display, from a tool call as Claude Code reports it to PreToolUse. */
+export function describeTool(tool: string, input: any): string {
+  const neural: Record<string, string> = {
+    reply: 'Replying', send_message: `Messaging ${input?.to ?? 'a session'}`, list_sessions: 'Checking sessions',
+    search_history: 'Searching history', get_thread: 'Reading a conversation', spawn_session: `Starting ${input?.name ?? 'a session'}`,
+    stop_session: `Stopping ${input?.name ?? 'a session'}`, restart_session: `Restarting ${input?.name ?? 'a session'}`,
+    read_screen: `Looking at ${input?.name ?? 'a terminal'}`, wait_for: `Waiting for ${input?.name ?? 'a session'}`,
+  }
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(tool)
+  if (mcp && (mcp[1] === 'neural' || mcp[1] === 'hub')) return neural[mcp[2]] ?? 'Using Neural'
+  if (mcp) return `Using ${mcp[1].replace(/^claude_ai_/, '').replace(/_/g, ' ')}`
+  switch (tool) {
+    case 'Bash':
+      return clip(input?.description ? String(input.description) : `Running ${String(input?.command ?? '').split('\n')[0]}`)
+    case 'Read': return `Reading ${base(input?.file_path)}`
+    case 'Edit': case 'MultiEdit': return `Editing ${base(input?.file_path)}`
+    case 'Write': return `Writing ${base(input?.file_path)}`
+    case 'NotebookEdit': return `Editing ${base(input?.notebook_path)}`
+    case 'Grep': return clip(`Searching for ${input?.pattern ?? 'text'}`)
+    case 'Glob': return clip(`Finding ${input?.pattern ?? 'files'}`)
+    case 'WebFetch': {
+      try { return `Reading ${new URL(String(input?.url)).host}` } catch { return 'Reading a web page' }
+    }
+    case 'WebSearch': return clip(`Searching the web for ${input?.query ?? ''}`)
+    case 'Task': case 'Agent': return clip(input?.description ? String(input.description) : 'Running a subagent')
+    case 'TodoWrite': return 'Planning'
+    case 'ToolSearch': return 'Loading tools'
+    default: return tool ? `Using ${tool}` : 'Working'
   }
 }
 

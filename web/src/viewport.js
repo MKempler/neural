@@ -7,12 +7,28 @@ export const viewportInfo = signal('')
 const root = document.documentElement
 const vv = window.visualViewport
 
+const standalone = Boolean(navigator.standalone || matchMedia('(display-mode: standalone)').matches)
+const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+
+/** The physical screen height in CSS pixels for the current orientation (iOS doesn't swap screen.width/height). */
+function screenHeight() {
+  const portrait = matchMedia('(orientation: portrait)').matches
+  return portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height)
+}
+
+let applied = 0
 function fit() {
-  const h = vv ? vv.height : window.innerHeight
+  let h = vv ? vv.height : window.innerHeight
   const top = vv ? vv.offsetTop : 0
+  const keyboard = window.innerHeight - h > 120
+  // An installed iPhone app with a see-through status bar is drawn from the very top of the screen, but iOS
+  // reports the height minus the status bar, which left a blank band under the tab bar. With the keyboard
+  // closed, use the whole screen; with it open, the visual viewport is what's visible above it.
+  if (standalone && iOS && !keyboard) h = Math.max(h, screenHeight())
+  applied = h
   root.style.setProperty('--app-h', `${Math.round(h)}px`)
   root.style.setProperty('--app-top', `${Math.round(top)}px`)
-  root.classList.toggle('keyboard', window.innerHeight - h > 120)
+  root.classList.toggle('keyboard', keyboard)
   // Keep the page itself from scrolling under the fixed app when iOS nudges it.
   if (!vv || vv.offsetTop === 0) window.scrollTo(0, 0)
   if (viewportInfo.value) viewportInfo.value = describe()
@@ -31,7 +47,8 @@ export function describe() {
     `screen        ${screen.width}×${screen.height}`,
     `window inner  ${innerWidth}×${innerHeight}`,
     `visual vp     ${vv ? `${Math.round(vv.width)}×${Math.round(vv.height)} top ${Math.round(vv.offsetTop)}` : 'n/a'}`,
-    `app box       ${app ? `${Math.round(app.top)}..${Math.round(app.bottom)}` : 'n/a'}`,
+    `app box       ${app ? `${Math.round(app.top)}..${Math.round(app.bottom)}` : 'n/a'} (sized ${Math.round(applied)})`,
+    `keyboard      ${root.classList.contains('keyboard') ? 'open' : 'closed'}`,
     `safe area     ${safe} (top / bottom)`,
     `standalone    ${Boolean(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`,
     `user agent    ${navigator.userAgent.replace(/^Mozilla\/5\.0 /, '').slice(0, 90)}`,

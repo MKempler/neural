@@ -1,0 +1,4 @@
+#!/bin/sh
+# Claude Hub command line. Run `hub help` for the commands.
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+exec node --disable-warning=ExperimentalWarning "$DIR/bin/hub.ts" "$@"

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stand-in for the claude binary in tests: speaks MCP to the hub channel and posts hooks, with no model behind it.
+exec "$HUB_TEST_NODE" --disable-warning=ExperimentalWarning "$(dirname "$0")/fake-claude.ts" "$@"

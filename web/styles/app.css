@@ -569,7 +569,7 @@ button.result:hover { background: var(--surface-2); }
   border: 1px solid var(--line-strong); border-radius: var(--r-card); background: var(--surface);
   font: 11px/1.5 var(--mono); color: var(--text-2); white-space: pre-wrap;
 }
-.topbar .conn-dot { border: 0; background: none; padding: 8px; margin: -8px; display: grid; place-items: center; }
+.topbar .conn-dot { padding: 8px; margin: -8px; display: grid; place-items: center; -webkit-touch-callout: none; user-select: none; }
 
 /* ------------------------------------------------------------------------------------------- */
 /* Composer: + menu, Stop, live activity, jump to latest, message actions                       */

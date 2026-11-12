@@ -51,13 +51,24 @@ export function Rail() {
   </nav>`
 }
 
+/** Screen-size readout for diagnosing layout on a device: press and hold the connection dot for a second. */
+function holdFor(fn, ms = 900) {
+  let timer
+  const cancel = () => clearTimeout(timer)
+  return {
+    onPointerDown: () => (timer = setTimeout(fn, ms)),
+    onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel,
+    onContextMenu: e => e.preventDefault(),
+  }
+}
+
 export function TopBar() {
   return html`<header class="topbar">
     <${Brand} />
     <div class="end">
-      <button class="conn-dot" aria-label=${connected.value ? 'Connected. Tap for screen details' : 'Reconnecting'} onClick=${toggleViewportInfo}>
+      <span class="conn-dot" role="status" aria-label=${connected.value ? 'Connected' : 'Reconnecting'} ...${holdFor(toggleViewportInfo)}>
         <${Dot} status=${connected.value ? 'online' : 'offline'} />
-      </button>
+      </span>
     </div>
   </header>`
 }

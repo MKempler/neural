@@ -12,7 +12,7 @@ import {
   sendMessage, handleHook, handleTool, isCommand, runCommand, channelConnected, channelDisconnected,
   permissionRequested, decidePermission, retryStale, flush,
 } from './router.ts'
-import { ingestAll } from './ingest.ts'
+import { ingestAll, seedModels } from './ingest.ts'
 import * as push from './push.ts'
 import * as terminal from './terminal.ts'
 import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from './files.ts'
@@ -428,6 +428,7 @@ export async function start() {
     }, 30_000)
   }
   for (const s of sessions.all()) flush(s.name)
+  seedModels()
   watchForChanges(stop)
   return server
 }

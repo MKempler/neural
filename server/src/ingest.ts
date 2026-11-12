@@ -169,6 +169,37 @@ export async function ingestAll(): Promise<{ files: number; added: number }> {
   return { files, added }
 }
 
+/** Fill in each session's model and effort from the newest reply in its transcript (for sessions that have
+ *  been quiet since Neural started, so no new lines would report it). Reads only the end of each file. */
+export function seedModels() {
+  for (const s of sessions.all()) {
+    if (s.model || !s.transcript_path) continue
+    try {
+      const size = fs.statSync(s.transcript_path).size
+      const fd = fs.openSync(s.transcript_path, 'r')
+      const start = Math.max(0, size - (1 << 20))
+      const buf = Buffer.alloc(size - start)
+      fs.readSync(fd, buf, 0, buf.length, start)
+      fs.closeSync(fd)
+      const lines = buf.toString('utf8').split('\n').reverse()
+      for (const line of lines) {
+        if (!line.includes('"type":"assistant"') || line.includes('"isSidechain":true')) continue
+        try {
+          const e = JSON.parse(line)
+          if (e.message?.model) {
+            noteModel(s.name, e.message.model, typeof e.effort === 'string' ? e.effort : e.effort?.level)
+            break
+          }
+        } catch {
+          // a partial first line from the cut; keep looking
+        }
+      }
+    } catch {
+      // transcript gone; the next reply reports it
+    }
+  }
+}
+
 export function transcriptCount(): number {
   return (db.prepare('SELECT count(*) AS n FROM transcript_entries').get() as { n: number }).n
 }

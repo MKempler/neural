@@ -1,11 +1,11 @@
 // The ⌘K palette and the New session sheet.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { html, api, shortPath, ago, local, unmark, excerpt } from '../lib.js'
+import { html, api, shortPath, ago, local, unmark, excerpt, modelLabel } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Dot, useAutosize } from './parts.js'
 import { Highlight } from '../views/Lists.js'
 import {
-  switcherOpen, totalUnread, lightbox, paletteOpen, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
+  switcherOpen, totalUnread, lightbox, paletteOpen, modelSheet, sendNow, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
 } from '../store.js'
 
 export function Overlay({ onClose, children, label }) {
@@ -45,6 +45,40 @@ export function SessionSwitcher() {
       <div class="sheet-foot">
         <button class="btn ghost" onClick=${() => { close(); navigate('/') }}><${Icon} name="home" />Home</button>
         <button class="btn" onClick=${() => { close(); newSessionOpen.value = true }}><${Icon} name="plus" />New session</button>
+      </div>
+    </div>
+  </${Overlay}>`
+}
+
+// ---------------------------------------------------------------------------------------------
+// Model and effort: shows what a session is using; changes run as slash commands in its terminal.
+
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+export function ModelSheet() {
+  const name = modelSheet.value
+  if (!name) return null
+  const s = sessions.value[name]
+  if (!s) return null
+  const close = () => (modelSheet.value = null)
+  const run = command => {
+    sendNow(name, command)
+    close()
+  }
+  return html`<${Overlay} onClose=${close} label="Model and effort">
+    <div class="sheet model-sheet">
+      <div class="sheet-head"><h2>Model and effort · <span class="mono">${name}</span></h2>
+        <button class="btn ghost icon-only" aria-label="Close" onClick=${close}><${Icon} name="x" /></button></div>
+      <div class="sheet-body">
+        <div class="kv"><span class="label">Model</span><span class="mono">${s.model ? `${modelLabel(s.model)} (${s.model})` : 'not reported yet'}</span></div>
+        <div class="field"><span>Effort</span>
+          <div class="chips">${EFFORTS.map(e => html`<button class=${`chip ${s.effort === e ? 'on' : ''}`} onClick=${() => run(`/effort ${e}`)}>${e}</button>`)}</div>
+        </div>
+        <button class="btn" onClick=${() => { run('/model'); navigate(sessionPath(name, 'terminal'), { replace: true }) }}>
+          <${Icon} name="terminal" />Choose a model in the terminal</button>
+        <p class="hint">These run as <span class="mono">/effort</span> and <span class="mono">/model</span> in ${name}'s terminal. You can also type
+          any slash command, like <span class="mono">/model sonnet</span> or <span class="mono">/compact</span>, straight into the message box.
+          The display updates after the session's next reply.</p>
       </div>
     </div>
   </${Overlay}>`

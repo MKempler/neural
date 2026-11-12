@@ -9,7 +9,7 @@ import { sessions, messages, permissions, events, reads } from './db.ts'
 import { searchAll, embedPending, embeddingStatus } from './embed.ts'
 import { channels, uiClients, broadcast, bus, doing } from './live.ts'
 import {
-  sendMessage, handleHook, handleTool, channelConnected, channelDisconnected,
+  sendMessage, handleHook, handleTool, isCommand, runCommand, channelConnected, channelDisconnected,
   permissionRequested, decidePermission, retryStale, flush,
 } from './router.ts'
 import { ingestAll } from './ingest.ts'
@@ -163,7 +163,11 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
     case 'POST messages': {
       const body = await readJson(req)
       const attachments = Array.isArray(body.attachments) ? body.attachments.map(Number).filter(Number.isInteger) : []
-      return sendMessage({ from: 'user', to: String(body.to ?? ''), body: String(body.body ?? ''), source: 'ui', attachments })
+      let text = String(body.body ?? '')
+      const to = String(body.to ?? '')
+      if (to !== 'user' && !attachments.length && isCommand(text.trim())) return runCommand(to, text.trim())
+      if (text.trim().startsWith('//')) text = text.trim().slice(1) // "//x" sends a literal "/x" to Claude
+      return sendMessage({ from: 'user', to, body: text, source: 'ui', attachments })
     }
 
     case 'POST upload':

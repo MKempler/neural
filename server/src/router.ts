@@ -89,6 +89,7 @@ export function handleHook(name: string, event: string, payload: any) {
   const s = sessions.get(name)
   if (!s) return
   activity.set(name, Date.now())
+  noteModel(name, event === 'PostModelSwitch' ? payload?.to_model : payload?.model, payload?.effort?.level ?? payload?.effort)
   if (event === 'PreToolUse') {
     setDoing(name, describeTool(String(payload?.tool_name ?? ''), payload?.tool_input ?? {}))
     return
@@ -138,6 +139,44 @@ export function handleHook(name: string, event: string, payload: any) {
       }
       break
   }
+}
+
+/** Remember the model and effort level a session reports (hooks, transcripts) and tell the app when they change. */
+export function noteModel(name: string, model: unknown, effort: unknown) {
+  const s = sessions.get(name)
+  if (!s) return
+  const fields: { model?: string; effort?: string } = {}
+  if (typeof model === 'string' && model && model !== s.model) fields.model = model
+  if (typeof effort === 'string' && effort && effort !== s.effort) fields.effort = effort
+  if (!Object.keys(fields).length) return
+  sessions.update(name, fields)
+  sessionChanged(name)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Slash commands typed in the app run in the session's terminal, as if typed there.
+
+/** "/model sonnet" is a command; "/Users/me/file.txt" (a path) and "//literal" are not. */
+export function isCommand(body: string) {
+  return /^\/[a-z][\w:-]*(?:\s|$)/i.test(body) && !body.startsWith('//')
+}
+
+export async function runCommand(name: string, body: string): Promise<Message> {
+  const s = sessions.get(name)
+  if (!s) throw new Error(`no session "${name}"`)
+  if (!(await mux.alive(name))) throw new Error(`${name} isn't running. Start it first, then send the command.`)
+  const command = body.trim().split('\n')[0]
+  const m = messages.insert({ from: 'user', to: name, body: command, source: 'command' })
+  events.add(name, 'command', { command })
+  await mux.type(name, command)
+  await new Promise(r => setTimeout(r, 120))
+  await mux.sendKeys(name, ['Enter'])
+  // /effort takes effect at once; show it now rather than after the next reply.
+  const effort = /^\/effort\s+(low|medium|high|xhigh|max)\b/i.exec(command)?.[1]
+  if (effort) noteModel(name, null, effort.toLowerCase())
+  const fresh = messages.get(m.id)!
+  broadcast({ type: 'message', message: fresh })
+  return fresh
 }
 
 const base = (p: unknown) => String(p ?? '').split('/').filter(Boolean).pop() ?? ''

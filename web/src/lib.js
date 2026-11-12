@@ -83,6 +83,24 @@ export function excerpt(m) {
   return n ? `${n} attachment${n === 1 ? '' : 's'}` : ''
 }
 
+/** "claude-fable-5-2" → "Fable 5.2", "claude-sonnet-4-5-20250929" → "Sonnet 4.5", "opus" → "Opus". */
+export function modelLabel(id) {
+  if (!id) return ''
+  const parts = String(id).replace(/^claude-/, '').replace(/-\d{8}$/, '').replace(/\[.*\]$/, '').split('-')
+  const name = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+  const version = parts.slice(1).filter(p => /^\d+$/.test(p)).join('.')
+  return version ? `${name} ${version}` : name
+}
+
+/** The chip text for a session: "Fable 5.2 · high", or what is known so far. */
+export const modelChip = s => [modelLabel(s?.model), s?.effort].filter(Boolean).join(' · ')
+
+/** A message that runs in the session's terminal instead of going to Claude (mirrors the server's rule). */
+export const isCommand = text => /^\/[a-z][\w:-]*(?:\s|$)/i.test(text) && !text.startsWith('//')
+
+/** Commands that open a picker in the terminal when given no arguments. */
+export const opensPicker = text => /^\/(model|effort|config|permissions|mcp|agents|resume|memory|hooks|status|login|theme|output-style|plugin)\s*$/i.test(text.trim())
+
 export const fmtNumber = n => new Intl.NumberFormat().format(n)
 
 // ---------------------------------------------------------------------------------------------

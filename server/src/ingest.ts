@@ -3,6 +3,7 @@ import path from 'node:path'
 import { config } from './config.ts'
 import { db, sessions, outbox } from './db.ts'
 import { broadcast } from './live.ts'
+import { noteModel } from './router.ts'
 
 // Archives Claude Code transcripts into the hub database so they stay searchable after Claude Code's own
 // cleanup removes them. Every session on this machine is covered, not only the ones the hub started.
@@ -57,6 +58,7 @@ function nameFor(claudeSessionId: string, cache: Map<string, string | null>) {
 
 function ingestLines(lines: string[], project: string, names: Map<string, string | null>) {
   let added = 0
+  const latest = new Map<string, { model?: string; effort?: unknown }>()
   db.exec('BEGIN')
   try {
     for (const line of lines) {
@@ -69,6 +71,10 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
         continue
       }
       if ((entry.type !== 'user' && entry.type !== 'assistant') || !entry.uuid || !entry.sessionId) continue
+      if (entry.type === 'assistant' && !entry.isSidechain) {
+        const owner = nameFor(entry.sessionId, names)
+        if (owner) latest.set(owner, { model: entry.message?.model, effort: entry.effort })
+      }
       const found = extract(entry)
       if (!found) continue
       const name = nameFor(entry.sessionId, names)
@@ -92,6 +98,8 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
     db.exec('ROLLBACK')
     throw e
   }
+  // Only lines appended since the last pass are read, so this reflects the newest turns.
+  for (const [name, v] of latest) noteModel(name, v.model, typeof v.effort === 'string' ? v.effort : (v.effort as any)?.level)
   return added
 }
 

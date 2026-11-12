@@ -18,7 +18,9 @@ const hook = async (event: string, extra: Record<string, unknown> = {}) => {
   await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, transcript_path: `/tmp/fake/${sessionId}.jsonl`, hook_event_name: event, ...extra }),
+    // Like Claude Code, turn-end hooks carry the effort level.
+    body: JSON.stringify({ session_id: sessionId, transcript_path: `/tmp/fake/${sessionId}.jsonl`, hook_event_name: event,
+      ...(event === 'Stop' ? { effort: { level: 'high' } } : {}), ...extra }),
   }).catch(() => {})
 }
 

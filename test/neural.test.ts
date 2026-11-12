@@ -492,6 +492,43 @@ test('the app sees what a session is doing, and Stop interrupts it', async () =>
   assert.equal((await session('main')).activity, null)
 })
 
+test('slash commands typed in the app run in the session terminal; paths and // do not', async () => {
+  const { isCommand } = await import('../server/src/router.ts')
+  assert.ok(isCommand('/model sonnet') && isCommand('/compact') && isCommand('/effort max'))
+  assert.ok(!isCommand('/Users/me/notes.txt what is this') && !isCommand('//model') && !isCommand('hello /model'))
+
+  await idle('main')
+  const sent = (await api('POST', '/api/messages', { to: 'main', body: '/effort max' })).body
+  assert.equal(sent.source, 'command')
+  // The stand-in treats what is typed into its terminal as a prompt and echoes it.
+  await messageWhere('typed into the terminal', m => m.from_name === 'main' && m.body === 'pasted: /effort max')
+  await idle('main')
+  const literal = (await api('POST', '/api/messages', { to: 'main', body: '//model is a word' })).body
+  assert.equal(literal.body, '/model is a word')
+  await messageWhere('sent to Claude', m => m.in_reply_to === literal.id && m.body === 'echo: /model is a word')
+  await idle('main')
+  assert.equal((await api('POST', '/api/messages', { to: 'w1', body: '/model' })).status, 400) // w1 is stopped
+})
+
+test('each session shows the model and effort it is using', async () => {
+  await idle('main')
+  assert.equal((await session('main')).effort, 'high') // from the Stop hook
+  const { handleHook } = await import('../server/src/router.ts')
+  handleHook('main', 'PostModelSwitch', { to_model: 'claude-sonnet-5-5' })
+  assert.equal((await session('main')).model, 'claude-sonnet-5-5')
+  assert.ok(seen.some(e => e.type === 'session' && e.session.name === 'main' && e.session.model === 'claude-sonnet-5-5'))
+  // Transcripts carry the exact model of each reply.
+  const id = (await session('main')).claude_session_id
+  const dir = path.join(tmp, 'transcripts', 'main-project')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, `${id}.jsonl`), JSON.stringify({
+    type: 'assistant', uuid: 'm1', sessionId: id, timestamp: new Date().toISOString(), effort: 'max',
+    message: { role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'done' }] },
+  }) + '\n')
+  await until('model from transcript', async () => (await session('main')).model === 'claude-opus-5-5')
+  assert.equal((await session('main')).effort, 'max')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

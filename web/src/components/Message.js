@@ -62,6 +62,13 @@ export function Message({ m, context, continued, onQuote }) {
     setOpen(false)
   }
 
+  if (m.source === 'command') {
+    return html`<div class="msg mine command" ref=${self}>
+      <div class="gutter"><span class="who">you</span><span title=${new Date(m.ts).toLocaleString()}>${clock(m.ts)}</span></div>
+      <div class="content"><div class="cmd-line"><${Icon} name="terminal" size=${14} /><code>${m.body}</code><span>ran in the terminal</span></div></div>
+    </div>`
+  }
+
   return html`<div class=${`msg ${mine ? 'mine' : ''} ${relay ? 'relay' : ''} ${continued ? 'continued' : ''} ${open ? 'open' : ''} ${pending ? 'pending' : ''}`}
       onClick=${toggle} ref=${self}>
     <div class="gutter">

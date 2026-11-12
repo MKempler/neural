@@ -1,6 +1,6 @@
 // Home: what needs you, every session at a glance, and recent activity.
 import { useEffect, useState } from 'preact/hooks'
-import { html, ago, clock, plain, excerpt, shortPath, fmtNumber } from '../lib.js'
+import { html, ago, clock, plain, excerpt, shortPath, fmtNumber, modelChip } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Composer, Dot, PermissionCard, StatusPill, Link } from '../components/parts.js'
 import { NotifySetup } from '../push.js'
@@ -101,6 +101,7 @@ export function SessionCard({ s }) {
     <div class="card-top"><span class="card-name">${s.name}</span><${StatusPill} status=${s.status} /></div>
     <div class="card-meta">
       ${s.role === 'orchestrator' && html`<span class="tag accent">orchestrator</span>`}
+      ${modelChip(s) && html`<span class="tag">${modelChip(s)}</span>`}
       <span class="cwd" title=${s.cwd}>${shortPath(s.cwd)}</span>
     </div>
     <p class="card-excerpt">${m ? html`${from && html`<span class="from">${from}: </span>`}${excerpt(m)}` : html`<span class="muted">No messages yet</span>`}</p>

@@ -15,6 +15,8 @@ export const route = signal(parse(location))
 export const paletteOpen = signal(false)
 export const newSessionOpen = signal(false)
 export const switcherOpen = signal(false)
+/** Name of the session whose model and effort sheet is open, or null. */
+export const modelSheet = signal(null)
 /** Messages shown before the server has them: sending, queued while offline, or failed. Kept across reloads. */
 export const pendingSends = signal(local.get('neural.pending', []).map(p => ({ ...p, delivery: p.delivery === 'sending' ? 'queued' : p.delivery })))
 export const lightbox = signal(/** @type {null | { items: any[], index: number }} */ (null))

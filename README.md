@@ -62,6 +62,9 @@ are trademarks of Anthropic.
   - a live line showing what the session is doing ("Running the full test suite · 0:33")
   - drafts kept per session, and messages that queue while you're offline
 - **Timeline** of every message, **Search** across all history, and a **⌘K** palette to jump anywhere.
+- **Slash commands from the chat:** a message starting with `/` (`/model sonnet`, `/effort max`, `/compact`)
+  runs in the session's terminal, as if typed into Claude Code. Start with `//` to send it to Claude as text.
+- **Model and effort** are shown on every session ("Fable 5.2 · high"); tap them to change.
 
 ## How it works
 

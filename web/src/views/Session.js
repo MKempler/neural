@@ -1,6 +1,6 @@
 // One session: conversation, live terminal and activity log.
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
-import { html, api, clock, dayLabel, tilde, shortPath, local, unmark } from '../lib.js'
+import { html, api, clock, dayLabel, tilde, shortPath, local, unmark, modelChip, isCommand, opensPicker } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Dot, Menu, PermissionCard, StatusPill } from '../components/parts.js'
 import { Composer, DropZone } from '../components/Composer.js'
@@ -8,7 +8,7 @@ import { Message, ActivityLine } from '../components/Message.js'
 import { Terminal } from '../components/Terminal.js'
 import {
   sessions, threads, permissions, route, navigate, sessionPath, loadThread, loadOlder,
-  sessionAction, removeSession, readLatest, pendingSends, sendNow, interrupt, switcherOpen,
+  sessionAction, removeSession, readLatest, pendingSends, sendNow, interrupt, switcherOpen, modelSheet,
 } from '../store.js'
 
 const TABS = [['chat', 'Conversation', 'chat'], ['terminal', 'Terminal', 'terminal'], ['activity', 'Activity', 'activity']]
@@ -48,6 +48,7 @@ export function Session() {
   const menu = [
     phone && tab !== 'activity' && { label: 'Activity log', icon: 'activity', run: () => setTab('activity') },
     phone && tab !== 'chat' && { label: 'Conversation', icon: 'chat', run: () => setTab('chat') },
+    { label: 'Model and effort', icon: 'settings', run: () => (modelSheet.value = name) },
     phone && '-',
     { label: down ? 'Start' : 'Restart', icon: 'restart', run: () => sessionAction(name, 'restart').catch(e => alert(e.message)) },
     !down && { label: 'Stop session', icon: 'stop', run: () => confirm(`Stop ${name}? Its conversation is kept and it can be started again.`) && sessionAction(name, 'stop').catch(e => alert(e.message)) },
@@ -60,7 +61,8 @@ export function Session() {
   ]
 
   const back = () => (history.length > 1 ? history.back() : navigate('/'))
-  const subtitle = tab === 'terminal' ? 'terminal' : tab === 'activity' ? 'activity log' : shortPath(s.cwd, 34)
+  const chip = modelChip(s)
+  const subtitle = tab === 'terminal' ? 'terminal' : tab === 'activity' ? 'activity log' : [chip, shortPath(s.cwd, 30)].filter(Boolean).join(' · ')
 
   return html`<section class="session">
     ${phone
@@ -79,6 +81,7 @@ export function Session() {
             <h1>${name} <${StatusPill} status=${s.status} /></h1>
             <div class="meta">
               ${s.role === 'orchestrator' && html`<span>orchestrator</span>`}
+              ${chip && html`<button class="model-chip" title="Change model or effort" onClick=${() => (modelSheet.value = name)}>${chip}</button>`}
               <span title=${s.cwd}>${tilde(s.cwd)}</span>
               ${!s.channel_connected && !down && html`<span>channel down</span>`}
             </div>
@@ -179,6 +182,8 @@ function Conversation({ s }) {
   const quote = text => composer.current?.insert(text)
   const send = (body, ids, previews) => {
     sendNow(s.name, body, ids, previews)
+    // A command that opens a picker (plain /model, /effort, …) is answered in the terminal, so show it.
+    if (!ids.length && isCommand(body) && opensPicker(body)) navigate(sessionPath(s.name, 'terminal'), { replace: true })
     stick.current = true
     requestAnimationFrame(() => toBottom(true))
   }

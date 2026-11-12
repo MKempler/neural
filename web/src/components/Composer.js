@@ -1,6 +1,6 @@
 // The message box and its attachments: upload as soon as a file is picked, thumbnails, progress, retry.
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { html } from '../lib.js'
+import { html, isCommand } from '../lib.js'
 import { Icon } from '../icons.js'
 import { drafts } from '../store.js'
 
@@ -209,6 +209,8 @@ export function Composer({ placeholder, onSend, hint, autofocus, variant = 'comp
   return html`<form ref=${box} class=${`${variant} ${att.items.length ? 'has-files' : ''}`} onSubmit=${submit}
       onDragOver=${e => e.dataTransfer?.types?.includes('Files') && e.preventDefault()} onDrop=${onDrop}>
     <${Tray} att=${att} />
+    ${variant !== 'quick' && isCommand(text.trim()) && !att.items.length && html`<div class="cmd-hint"><${Icon} name="terminal" size=${14} />
+      Runs in the terminal · start with // to send it as text</div>`}
     <div class="composer-row">
       ${variant === 'quick' && hint}
       <div class="plus">

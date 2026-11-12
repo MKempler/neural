@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Keeps the hub running and starts it at login. Installed by `bin/hub install-service`, which fills in the paths. -->
+<!-- Keeps the hub running and starts it at login. Installed by `bin/neural install-service`, which fills in the paths. -->
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.claudehub.server</string>
+  <key>Label</key><string>com.neural.server</string>
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
@@ -13,13 +13,13 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>__NODE_DIR__:__TMUX_DIR__:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>HUB_CLAUDE_BIN</key><string>__CLAUDE__</string>
+    <key>NEURAL_CLAUDE_BIN</key><string>__CLAUDE__</string>
     <key>LANG</key><string>en_US.UTF-8</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
-  <key>StandardOutPath</key><string>__HOME__/Library/Logs/claude-hub.log</string>
-  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/claude-hub.log</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/neural.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/neural.log</string>
 </dict>
 </plist>

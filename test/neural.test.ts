@@ -10,30 +10,34 @@ import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-hub-test-'))
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'neural-test-'))
 const port = 17000 + Math.floor(Math.random() * 2000)
 const base = `http://127.0.0.1:${port}`
-const SOCKET = 'claude-hub-test'
+const SOCKET = 'neural-test'
+// Reuse the embedding model if this machine already downloaded it (current or pre-rename data folder).
+const models = ['neural', 'claude-hub'].map(d => path.join(os.homedir(), '.local/share', d, 'models'))
+  .find(d => fs.existsSync(path.join(d, 'Xenova')))
 
 Object.assign(process.env, {
-  HUB_DATA_DIR: tmp,
-  HUB_PORT: String(port),
-  HUB_TMUX_SOCKET: SOCKET,
-  HUB_CLAUDE_BIN: path.join(here, 'fake-claude'),
-  HUB_TEST_NODE: process.execPath,
-  HUB_ORCHESTRATOR_CWD: tmp,
-  HUB_TRANSCRIPTS_DIR: path.join(tmp, 'transcripts'),
-  HUB_INGEST_MS: '300',
+  NEURAL_DATA_DIR: tmp,
+  NEURAL_PORT: String(port),
+  NEURAL_TMUX_SOCKET: SOCKET,
+  NEURAL_CLAUDE_BIN: path.join(here, 'fake-claude'),
+  NEURAL_TEST_NODE: process.execPath,
+  NEURAL_ORCHESTRATOR_CWD: tmp,
+  NEURAL_TRANSCRIPTS_DIR: path.join(tmp, 'transcripts'),
+  NEURAL_INGEST_MS: '300',
   // Semantic search runs in the tests only when the embedding model is already on this machine.
-  HUB_MODELS_DIR: path.join(os.homedir(), '.local/share/claude-hub/models'),
-  HUB_EMBEDDINGS: fs.existsSync(path.join(os.homedir(), '.local/share/claude-hub/models/Xenova')) ? 'on' : 'off',
-  HUB_EMBED_MS: '300',
-  HUB_KEEP_AWAKE: 'off',
-  HUB_BACKUPS: 'off',
-  HUB_ACK_TIMEOUT: '2',
-  HUB_RETRY_MS: '300',
-  HUB_RECONCILE_MS: '300',
-  HUB_RESTART_BACKOFF_MS: '300',
+  NEURAL_MODELS_DIR: models ?? '',
+  NEURAL_EMBEDDINGS: models ? 'on' : 'off',
+  NEURAL_EMBED_MS: '300',
+  NEURAL_KEEP_AWAKE: 'off',
+  NEURAL_DISPLAY_NAME: 'Ada',
+  NEURAL_BACKUPS: 'off',
+  NEURAL_ACK_TIMEOUT: '2',
+  NEURAL_RETRY_MS: '300',
+  NEURAL_RECONCILE_MS: '300',
+  NEURAL_RESTART_BACKOFF_MS: '300',
 })
 
 const killTmux = () => {
@@ -151,7 +155,7 @@ test('history is searchable from a session and from the API', async () => {
   assert.deepEqual(await get('/api/search?q=' + encodeURIComponent('"); DROP')), [])
 })
 
-test('search also matches by meaning', { skip: process.env.HUB_EMBEDDINGS === 'off' && 'embedding model not downloaded' }, async () => {
+test('search also matches by meaning', { skip: process.env.NEURAL_EMBEDDINGS === 'off' && 'embedding model not downloaded' }, async () => {
   // No keyword in common with "the staging database password rotation is scheduled for friday".
   const hit = await until('semantic hit', async () => {
     const hits = await get('/api/search?q=' + encodeURIComponent('when do we change the db credentials'))
@@ -306,16 +310,60 @@ test('a backup is a complete, readable copy and old ones are rotated out', async
   const { DatabaseSync } = await import('node:sqlite')
   const dir = path.join(tmp, 'backups')
   fs.mkdirSync(dir, { recursive: true })
-  for (let d = 1; d <= 9; d++) fs.writeFileSync(path.join(dir, `hub-2020-01-0${d}.db`), 'old')
+  for (let d = 1; d <= 9; d++) fs.writeFileSync(path.join(dir, `neural-2020-01-0${d}.db`), 'old')
   const file = backupNow()
   assert.ok(file && fs.existsSync(file))
   assert.equal(backupNow(), null) // one per day
   assert.equal(listBackups().length, 7)
-  assert.ok(!fs.existsSync(path.join(dir, 'hub-2020-01-03.db')))
+  assert.ok(!fs.existsSync(path.join(dir, 'neural-2020-01-03.db')))
   const copy = new DatabaseSync(file!, { readOnly: true })
   const live = (await get('/api/messages?limit=500')).length
   assert.equal((copy.prepare('SELECT count(*) AS n FROM messages').get() as any).n, live)
   copy.close()
+})
+
+test('state carries the greeting name, session summaries and health', async () => {
+  const state = await get('/api/state')
+  assert.equal(state.user.name, 'Ada')
+  const main = state.sessions.find((s: any) => s.name === 'main')
+  assert.ok(main.last_message && typeof main.last_message.body === 'string')
+  assert.equal(typeof main.unread, 'number')
+  assert.equal(typeof state.health.semantic.chunks, 'number')
+  assert.ok('lastBackup' in state.health && 'pushSubscriptions' in state.health)
+})
+
+test('unread replies are counted on the server and cleared for every tab', async () => {
+  await idle('main')
+  const before = (await session('main')).unread
+  await say('main', 'count me')
+  const reply = await messageWhere('reply', m => m.body === 'echo: count me')
+  const after = await until('unread count', async () => {
+    const s = await session('main')
+    return s.unread > before ? s : null
+  })
+  assert.equal(after.last_message.id, reply.id)
+  assert.equal((await api('POST', '/api/read', { session: 'main', id: reply.id })).status, 200)
+  assert.equal((await session('main')).unread, 0)
+  assert.ok(seen.some(e => e.type === 'read' && e.session === 'main' && e.unread === 0))
+  // Read position never moves backwards.
+  await api('POST', '/api/read', { session: 'main', id: 1 })
+  assert.equal((await session('main')).unread, 0)
+  assert.equal((await api('POST', '/api/read', { session: 'nope', id: 1 })).status, 400)
+  await idle('main')
+})
+
+test('app routes load the app; only listed packages are served from node_modules', async () => {
+  for (const route of ['/', '/s/main', '/timeline', '/search']) {
+    const res = await fetch(base + route)
+    assert.equal(res.status, 200, route)
+    assert.match(res.headers.get('content-type') ?? '', /text\/html/)
+  }
+  assert.equal((await fetch(base + '/vendor/preact/dist/preact.module.js')).status, 200)
+  assert.equal((await fetch(base + '/vendor/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2')).status, 200)
+  assert.equal((await fetch(base + '/vendor/ws/index.js')).status, 404) // not a browser package
+  assert.equal((await fetch(base + '/vendor/preact/package.json')).status, 404) // not a served file type
+  assert.equal((await fetch(base + '/vendor/preact/../ws/index.js')).status, 404)
+  assert.equal((await fetch(base + '/missing.js')).status, 404)
 })
 
 test('requests from other origins and without the secret are refused', async () => {

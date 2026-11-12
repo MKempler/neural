@@ -12,7 +12,7 @@ export const mux: Mux = new Tmux(config.tmuxSocket)
 // PostToolUse is only a heartbeat: it tells the hub a turn is still making progress.
 const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'Notification', 'SessionEnd', 'PreCompact']
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
-const RESERVED = new Set(['user', 'system', 'all', 'hub'])
+const RESERVED = new Set(['user', 'system', 'all', 'hub', 'neural'])
 const MAX_RESTARTS = 5
 
 export function validName(name: string) {
@@ -32,7 +32,7 @@ function resolveClaude(): string {
       // try the next way
     }
   }
-  throw new Error(`cannot find the claude binary (${config.claudeBin}); set HUB_CLAUDE_BIN to its full path`)
+  throw new Error(`cannot find the claude binary (${config.claudeBin}); set NEURAL_CLAUDE_BIN to its full path`)
 }
 
 // Per-session config files: the hub's MCP server and hooks are passed on the command line,
@@ -42,14 +42,14 @@ function writeRunFiles(s: Session) {
   const settingsFile = path.join(config.runDir, `${s.name}.settings.json`)
   const mcp = {
     mcpServers: {
-      hub: {
+      neural: {
         command: config.nodeBin,
-        args: ['--disable-warning=ExperimentalWarning', path.join(ROOT, 'channel/hub-channel.ts')],
+        args: ['--disable-warning=ExperimentalWarning', path.join(ROOT, 'channel/neural-channel.ts')],
         env: {
-          HUB_URL: hubUrl,
-          HUB_SECRET: config.secret,
-          HUB_SESSION_NAME: s.name,
-          HUB_ROLE: s.role,
+          NEURAL_URL: hubUrl,
+          NEURAL_SECRET: config.secret,
+          NEURAL_SESSION_NAME: s.name,
+          NEURAL_ROLE: s.role,
         },
       },
     },
@@ -76,7 +76,7 @@ export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
     '--mcp-config', mcpFile,
     '--settings', settingsFile,
     // Custom channels are not on the research-preview allowlist, so they load through the development flag.
-    '--dangerously-load-development-channels', 'server:hub',
+    '--dangerously-load-development-channels', 'server:neural',
   ]
   if (opts.resume && s.claude_session_id) argv.push('--resume', s.claude_session_id)
   return argv

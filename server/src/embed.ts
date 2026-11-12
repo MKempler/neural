@@ -70,7 +70,7 @@ const SOURCES = {
   // Tool output is left to keyword search, and hub messages echoed into transcripts are already covered as messages.
   transcript: db.prepare(
     `SELECT id, text FROM transcript_entries
-     WHERE id > ? AND role IN ('user', 'assistant') AND text NOT LIKE '<channel source="hub"%' ORDER BY id LIMIT 64`),
+     WHERE id > ? AND role IN ('user', 'assistant') AND text NOT LIKE '<channel source="hub"%' AND text NOT LIKE '<channel source="neural"%' ORDER BY id LIMIT 64`),
   transcriptMax: db.prepare('SELECT max(id) AS id FROM transcript_entries'),
 }
 

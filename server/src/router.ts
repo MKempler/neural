@@ -91,7 +91,7 @@ export function handleHook(name: string, event: string, payload: any) {
       break
     case 'UserPromptSubmit': {
       // Channel messages arrive as prompts too, wrapped in the hub's tag: seeing one here is proof of delivery.
-      const tags = String(payload?.prompt ?? '').match(/<channel\b[^>]*\bsource="hub"[^>]*>/g) ?? []
+      const tags = String(payload?.prompt ?? '').match(/<channel\b[^>]*\bsource="(?:neural|hub)"[^>]*>/g) ?? []
       let forUser = tags.length === 0 // no tag: typed at the terminal
       for (const tag of tags) {
         if (/\bfrom="user"/.test(tag)) forUser = true
@@ -209,7 +209,7 @@ export async function retryStale() {
       outbox.markPushed(row.message_id, 'paste')
       turns.set(row.target, { startedAt: Date.now(), replied: false, forUser: msg.from_name === 'user' })
       events.add(row.target, 'fallback-paste', { message_id: row.message_id })
-      await mux.paste(row.target, `[hub message from ${from}, msg_id=${msg.id}; answer with the hub reply tool]\n${msg.body}`)
+      await mux.paste(row.target, `[Neural message from ${from}, msg_id=${msg.id}; answer with the neural reply tool]\n${msg.body}`)
       delivery(row.message_id)
       setStatus(row.target, 'working')
     } catch (e) {

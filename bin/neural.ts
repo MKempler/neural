@@ -17,7 +17,7 @@ const api = async (url: string) => {
   return res.json()
 }
 
-const SERVICE = 'com.claudehub.server'
+const SERVICE = 'com.neural.server'
 const SERVICE_FILE = path.join(process.env.HOME ?? '', 'Library/LaunchAgents', `${SERVICE}.plist`)
 const SERVICE_TARGET = `gui/${process.getuid?.() ?? 0}/${SERVICE}`
 
@@ -33,7 +33,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     try {
       rows = await api('/api/sessions')
     } catch {
-      console.log(`The hub is not running on ${hubUrl}. Start it with: hub start`)
+      console.log(`The hub is not running on ${hubUrl}. Start it with: neural start`)
       process.exitCode = 1
       return
     }
@@ -72,13 +72,13 @@ const commands: Record<string, () => Promise<void> | void> = {
 
     try {
       const rows: any[] = await api('/api/sessions')
-      check(true, 'hub running', hubUrl)
+      check(true, 'neural running', hubUrl)
       for (const s of rows) {
         const healthy = ['idle', 'working', 'blocked'].includes(s.status) ? Boolean(s.channel_connected) : s.status === 'stopped'
         check(healthy, `session ${s.name}`, `${s.status}, channel ${s.channel_connected ? 'connected' : 'not connected'}`)
       }
     } catch {
-      note('hub', `not running on ${hubUrl}`)
+      note('neural', `not running on ${hubUrl}`)
     }
 
     const { embeddingStatus } = await import('../server/src/embed.ts')
@@ -86,7 +86,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const emb = embeddingStatus()
     note('semantic search', emb.enabled ? `${emb.chunks} chunks indexed` : 'off (keyword search only)')
     note('backups', listBackups().at(-1) ?? 'none yet')
-    note('login service', run('launchctl', ['print', SERVICE_TARGET]) ? 'installed' : 'not installed (hub install-service)')
+    note('login service', run('launchctl', ['print', SERVICE_TARGET]) ? 'installed' : 'not installed (neural install-service)')
 
     const ts = run('tailscale', ['status', '--json']) ?? run('/Applications/Tailscale.app/Contents/MacOS/Tailscale', ['status', '--json'])
     if (!ts) note('Tailscale', 'not installed or not signed in; the UI is reachable from this Mac only')
@@ -111,7 +111,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const tmux = which('tmux')
     if (!claude || !tmux) throw new Error('claude and tmux must be installed first (see: hub doctor)')
     const home = process.env.HOME!
-    const plist = fs.readFileSync(path.join(ROOT, 'launchd/com.claudehub.server.plist'), 'utf8')
+    const plist = fs.readFileSync(path.join(ROOT, 'launchd/com.neural.server.plist'), 'utf8')
       .replaceAll('__NODE_DIR__', path.dirname(config.nodeBin))
       .replaceAll('__NODE__', config.nodeBin)
       .replaceAll('__TMUX_DIR__', path.dirname(tmux))
@@ -123,7 +123,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     run('launchctl', ['bootout', SERVICE_TARGET])
     const out = spawnSync('launchctl', ['bootstrap', `gui/${process.getuid!()}`, SERVICE_FILE], { encoding: 'utf8' })
     if (out.status !== 0) throw new Error(`launchctl could not load the service: ${out.stderr.trim()}`)
-    console.log(`Installed ${SERVICE_FILE}\nThe hub now starts at login and restarts if it stops. Log: ~/Library/Logs/claude-hub.log`)
+    console.log(`Installed ${SERVICE_FILE}\nNeural now starts at login and restarts if it stops. Log: ~/Library/Logs/neural.log`)
   },
 
   'uninstall-service'() {
@@ -132,16 +132,21 @@ const commands: Record<string, () => Promise<void> | void> = {
     console.log('Service removed. Sessions already running in tmux are left alone.')
   },
 
-  help() {
-    console.log(`Claude Hub
+  migrate() {
+    // Handled by bin/neural before this module (and its config) loads; see bin/migrate.ts.
+    console.log('Run it as: bin/neural migrate')
+  },
 
-  hub start             Run the hub (web UI on ${hubUrl}); starts the orchestrator session "main"
-  hub status            List sessions and their state
-  hub attach <session>  Open a session's terminal (detach with Ctrl+B then D)
-  hub doctor            Check the installation
-  hub backup            Write a database snapshot now
-  hub install-service   Start the hub at login and keep it running (launchd)
-  hub uninstall-service Remove the login service
+  help() {
+    console.log(`Neural
+
+  neural start             Run Neural (web UI on ${hubUrl}); starts the orchestrator session "main"
+  neural status            List sessions and their state
+  neural attach <session>  Open a session's terminal (detach with Ctrl+B then D)
+  neural doctor            Check the installation
+  neural backup            Write a database snapshot now
+  neural install-service   Start the hub at login and keep it running (launchd)
+  neural uninstall-service Remove the login service
 `)
   },
 }

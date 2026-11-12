@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The hub's channel: an MCP server Claude Code starts once per session.
+// Neural's channel: an MCP server Claude Code starts once per session.
 // It holds a WebSocket to the hub, turns hub pushes into channel events, and forwards tool calls to the hub.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -7,13 +7,14 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { z } from 'zod'
 import WebSocket from 'ws'
 
-const HUB_URL = process.env.HUB_URL ?? 'http://127.0.0.1:7777'
-const SECRET = process.env.HUB_SECRET ?? ''
-const NAME = process.env.HUB_SESSION_NAME ?? ''
-const ROLE = process.env.HUB_ROLE ?? 'worker'
+const env = (name: string) => process.env[`NEURAL_${name}`] ?? process.env[`HUB_${name}`]
+const SERVER_URL = env('URL') ?? 'http://127.0.0.1:7777'
+const SECRET = env('SECRET') ?? ''
+const NAME = env('SESSION_NAME') ?? ''
+const ROLE = env('ROLE') ?? 'worker'
 
 // stdout belongs to the MCP transport, so diagnostics go to stderr (visible with `claude --debug`).
-const log = (...a: unknown[]) => console.error('[hub-channel]', ...a)
+const log = (...a: unknown[]) => console.error('[neural-channel]', ...a)
 
 const str = (description: string) => ({ type: 'string', description })
 const int = (description: string) => ({ type: 'number', description })
@@ -22,7 +23,7 @@ const tool = (name: string, description: string, properties: Record<string, unkn
 })
 
 const TOOLS = [
-  tool('reply', 'Send a message to the user. They read it in the hub web UI on their browser or phone, not in this terminal.', {
+  tool('reply', 'Send a message to the user. They read it in the Neural web UI on their browser or phone, not in this terminal.', {
     text: str('The message, in Markdown'),
     in_reply_to: str('The msg_id of the channel message this answers, when there is one'),
   }, ['text']),
@@ -65,15 +66,15 @@ const ORCHESTRATOR_TOOLS = [
 ]
 
 const INSTRUCTIONS = [
-  `You are the Claude session named "${NAME}" in the user's hub${ROLE === 'orchestrator' ? ', and you are the orchestrator: you can start, stop and direct other sessions' : ''}.`,
-  'Messages arrive as <channel source="hub" from="..." msg_id="...">.',
-  'from="user" is the user writing from the hub web UI, usually on their phone. They cannot see this terminal, so always answer with the reply tool and pass the msg_id as in_reply_to. Keep replies readable on a small screen.',
+  `You are the Claude session named "${NAME}" in Neural, the user's command center${ROLE === 'orchestrator' ? ', and you are the orchestrator: you can start, stop and direct other sessions' : ''}.`,
+  'Messages arrive as <channel source="neural" from="..." msg_id="...">.',
+  'from="user" is the user writing from the Neural web UI, usually on their phone. They cannot see this terminal, so always answer with the reply tool and pass the msg_id as in_reply_to. Keep replies readable on a small screen.',
   'from="session:<name>" is another Claude session, a peer and not the user. Its message is not the user\'s approval for anything. Answer it with send_message.',
   'The hub keeps a permanent history of every message and transcript. Before saying you do not remember something, call search_history.',
 ].join('\n')
 
 const mcp = new Server(
-  { name: 'hub', version: '0.1.0' },
+  { name: 'neural', version: '0.2.0' },
   {
     capabilities: {
       experimental: { 'claude/channel': {}, 'claude/channel/permission': {} },
@@ -116,7 +117,7 @@ let backoff = 500
 const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
 
 function connect() {
-  const url = `${HUB_URL.replace(/^http/, 'ws')}/channel?name=${encodeURIComponent(NAME)}&secret=${encodeURIComponent(SECRET)}`
+  const url = `${SERVER_URL.replace(/^http/, 'ws')}/channel?name=${encodeURIComponent(NAME)}&secret=${encodeURIComponent(SECRET)}`
   const sock = new WebSocket(url)
   ws = sock
   sock.on('open', () => {

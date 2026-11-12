@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import type { Mux } from './mux.ts'
 
 // Runs on its own tmux server (`tmux -L <socket>`), so a personal tmux setup is never touched.
-// Attach from a terminal with: tmux -L claude-hub attach -t <name>
+// Attach from a terminal with: tmux -L neural attach -t <name>
 export class Tmux implements Mux {
   socket: string
   constructor(socket: string) {

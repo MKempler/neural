@@ -1,4 +1,4 @@
-// Service worker: shows push notifications and opens the right session when one is tapped.
+// Neural service worker: shows push notifications and opens the right session when one is tapped.
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()))
 
@@ -7,9 +7,9 @@ self.addEventListener('push', event => {
   try {
     data = event.data.json()
   } catch {
-    data = { title: 'Claude Hub', body: event.data ? event.data.text() : '' }
+    data = { title: 'Neural', body: event.data ? event.data.text() : '' }
   }
-  event.waitUntil(self.registration.showNotification(data.title || 'Claude Hub', {
+  event.waitUntil(self.registration.showNotification(data.title || 'Neural', {
     body: data.body || '',
     tag: data.tag,
     renotify: Boolean(data.tag),
@@ -29,6 +29,6 @@ self.addEventListener('notificationclick', event => {
       if (session) windows[0].postMessage({ type: 'open', session })
       return
     }
-    await self.clients.openWindow(session ? '/?session=' + encodeURIComponent(session) : '/')
+    await self.clients.openWindow(session ? '/s/' + encodeURIComponent(session) : '/')
   })())
 })

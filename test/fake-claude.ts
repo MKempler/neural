@@ -10,7 +10,7 @@ const arg = (flag: string) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1
 const name = arg('--name')
 const sessionId = arg('--resume') ?? crypto.randomUUID()
 const settings = JSON.parse(fs.readFileSync(arg('--settings')!, 'utf8'))
-const mcpConfig = JSON.parse(fs.readFileSync(arg('--mcp-config')!, 'utf8')).mcpServers.hub
+const mcpConfig = JSON.parse(fs.readFileSync(arg('--mcp-config')!, 'utf8')).mcpServers.neural
 
 const hook = async (event: string, extra: Record<string, unknown> = {}) => {
   const url = settings.hooks?.[event]?.[0]?.hooks?.[0]?.url
@@ -73,7 +73,7 @@ client.fallbackNotificationHandler = async (n: any) => {
   const { msg_id, from } = n.params.meta
   console.log(`← hub: ${body}`)
   if (body.startsWith('silent')) return // as if the event had been dropped
-  await hook('UserPromptSubmit', { prompt: `<channel source="hub" from="${from}" msg_id="${msg_id}">\n${body}\n</channel>` })
+  await hook('UserPromptSubmit', { prompt: `<channel source="neural" from="${from}" msg_id="${msg_id}">\n${body}\n</channel>` })
   if (body.startsWith('echo:')) return hook('Stop', { last_assistant_message: 'Noted.' }) // don't ping-pong between sessions
   if (body.startsWith('noreply')) return hook('Stop', { last_assistant_message: `terminal answer to ${msg_id}` })
   if (body.startsWith('perm')) {

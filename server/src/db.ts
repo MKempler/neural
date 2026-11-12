@@ -122,6 +122,27 @@ export const messages = {
   },
 }
 
+export type Summary = { id: number; from_name: string; to_name: string; body: string; ts: string; source: string }
+
+export const reads = {
+  /** Last message to or from a session, with the body shortened for previews. */
+  last: (name: string) =>
+    q<Summary>(
+      `SELECT id, from_name, to_name, substr(body, 1, 400) AS body, ts, source FROM messages
+       WHERE id = (SELECT max(id) FROM messages WHERE from_name = ?1 OR to_name = ?1)`,
+    ).get(name) ?? null,
+  /** Replies from a session to the user that the user has not seen yet. */
+  unread: (name: string) =>
+    (q<{ n: number }>(
+      `SELECT count(*) AS n FROM messages WHERE from_name = ?1 AND to_name = 'user'
+       AND id > COALESCE((SELECT last_read_id FROM read_state WHERE session = ?1), 0)`,
+    ).get(name)?.n ?? 0),
+  /** Marks everything up to `id` as read; never moves backwards. */
+  mark: (name: string, id: number) =>
+    q(`INSERT INTO read_state (session, last_read_id) VALUES (?1, ?2)
+       ON CONFLICT(session) DO UPDATE SET last_read_id = max(last_read_id, excluded.last_read_id)`).run(name, id),
+}
+
 export type OutboxRow = {
   message_id: number
   target: string

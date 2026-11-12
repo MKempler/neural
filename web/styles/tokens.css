@@ -1,0 +1,74 @@
+/* Neural design tokens. Dark is the primary theme; light follows the system setting. */
+
+@font-face { font-family: 'Plex Sans'; font-weight: 400; font-display: swap; src: url('/vendor/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Sans'; font-weight: 500; font-display: swap; src: url('/vendor/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Sans'; font-weight: 600; font-display: swap; src: url('/vendor/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Mono'; font-weight: 400; font-display: swap; src: url('/vendor/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Plex Mono'; font-weight: 500; font-display: swap; src: url('/vendor/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2') format('woff2'); }
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0a0b0d;
+  --surface: #101215;
+  --surface-2: #16191d;
+  --surface-3: #1c2025;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.12);
+  --text: #e6e8eb;
+  --text-2: #a0a6af;
+  --text-3: #6a7079;
+
+  --accent: #5fd38d;
+  --accent-tint: rgba(95, 211, 141, 0.12);
+  --accent-ink: #07130c;
+  --warn: #e3b456;
+  --warn-tint: rgba(227, 180, 86, 0.12);
+  --bad: #ef6f68;
+  --bad-tint: rgba(239, 111, 104, 0.12);
+
+  --term-bg: #08090b;
+  --term-text: #d4d7dc;
+
+  --sans: 'Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 28px;
+
+  --r: 6px;
+  --r-card: 8px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t: 120ms;
+
+  --rail: 240px;
+  --content: 820px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f6f6f4;
+    --surface: #ffffff;
+    --surface-2: #f1f1ee;
+    --surface-3: #e9e9e5;
+    --line: rgba(0, 0, 0, 0.08);
+    --line-strong: rgba(0, 0, 0, 0.14);
+    --text: #111316;
+    --text-2: #4d535b;
+    --text-3: #80868e;
+    --accent: #1c8a50;
+    --accent-tint: rgba(28, 138, 80, 0.1);
+    --accent-ink: #ffffff;
+    --warn: #a86a00;
+    --warn-tint: rgba(168, 106, 0, 0.1);
+    --bad: #c4372f;
+    --bad-tint: rgba(196, 55, 47, 0.08);
+    --term-bg: #101215;
+    --term-text: #d4d7dc;
+  }
+}

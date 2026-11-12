@@ -5,8 +5,8 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { ROOT, config } from './config.ts'
-import { sessions, messages, permissions, events } from './db.ts'
-import { searchAll, embedPending } from './embed.ts'
+import { sessions, messages, permissions, events, reads } from './db.ts'
+import { searchAll, embedPending, embeddingStatus } from './embed.ts'
 import { channels, uiClients, broadcast, bus } from './live.ts'
 import {
   sendMessage, handleHook, handleTool, channelConnected, channelDisconnected,
@@ -15,7 +15,7 @@ import {
 import { ingestAll } from './ingest.ts'
 import * as push from './push.ts'
 import * as terminal from './terminal.ts'
-import { backupNow } from './backup.ts'
+import { backupNow, listBackups } from './backup.ts'
 import { spawn } from 'node:child_process'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
 
@@ -23,6 +23,7 @@ const WEB = path.join(ROOT, 'web')
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json',
+  '.mjs': 'text/javascript; charset=utf-8', '.woff2': 'font/woff2',
 }
 
 class HttpError extends Error {
@@ -57,6 +58,17 @@ function checkBrowser(req: http.IncomingMessage) {
   }
 }
 
+function withSummary(s: ReturnType<typeof sessions.all>[number]) {
+  return { ...s, last_message: reads.last(s.name), unread: reads.unread(s.name) }
+}
+
+/** First name for the greeting: config.json, then the Tailscale identity of the request, else nothing. */
+function displayName(req: http.IncomingMessage): string {
+  if (config.displayName) return config.displayName
+  const fromTailscale = String(req.headers['tailscale-user-name'] ?? '').trim().split(/\s+/)[0]
+  return fromTailscale
+}
+
 async function readJson(req: http.IncomingMessage): Promise<any> {
   let body = ''
   for await (const chunk of req) {
@@ -81,10 +93,29 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
 
   switch (route) {
     case 'GET state':
-      return { sessions: sessions.all(), permissions: permissions.open(), liveTerminal: terminal.available }
+      return {
+        user: { name: displayName(req) },
+        sessions: sessions.all().map(withSummary),
+        permissions: permissions.open(),
+        liveTerminal: terminal.available,
+        health: {
+          semantic: embeddingStatus(),
+          lastBackup: listBackups().at(-1) ?? null,
+          pushSubscriptions: push.subscriptionCount(),
+          tailnet: Boolean(req.headers['tailscale-user-login']),
+        },
+      }
+
+    case 'POST read': {
+      const { session, id } = await readJson(req)
+      if (!sessions.get(String(session)) || !Number.isInteger(id)) throw new HttpError(400, 'session and id are required')
+      reads.mark(String(session), id)
+      broadcast({ type: 'read', session, id, unread: reads.unread(String(session)) })
+      return { ok: true }
+    }
 
     case 'GET sessions':
-      return sessions.all()
+      return sessions.all().map(withSummary)
     case 'POST sessions': {
       if (name) {
         const action = parts[2]
@@ -140,7 +171,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       if (name === 'subscribe') push.subscribe(body.subscription, req.headers['user-agent'])
       else if (name === 'unsubscribe') push.unsubscribe(String(body.endpoint ?? ''))
       else if (name === 'test') {
-        const sent = await push.notify({ title: 'Claude Hub', body: 'Notifications are working.', tag: 'test' }, { evenIfWatching: true })
+        const sent = await push.notify({ title: 'Neural', body: 'Notifications are working.', tag: 'test' }, { evenIfWatching: true })
         return { sent }
       } else throw new HttpError(404, 'not found')
       return { ok: true }
@@ -156,19 +187,38 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
   throw new HttpError(404, 'not found')
 }
 
-// Browser libraries served straight from node_modules, so the UI needs no build step and no CDN.
-const VENDOR: Record<string, string> = {
-  '/vendor/xterm.js': 'node_modules/@xterm/xterm/lib/xterm.js',
-  '/vendor/xterm.css': 'node_modules/@xterm/xterm/css/xterm.css',
-  '/vendor/addon-fit.js': 'node_modules/@xterm/addon-fit/lib/addon-fit.js',
+// Browser libraries and fonts served straight from node_modules, so the UI needs no build step and makes no
+// requests outside this origin. Only these packages, and only these file types, are reachable.
+const VENDOR_PACKAGES = new Set([
+  'preact', 'htm', '@preact/signals', '@preact/signals-core', 'marked', 'dompurify',
+  '@fontsource/ibm-plex-sans', '@fontsource/ibm-plex-mono', '@xterm/xterm', '@xterm/addon-fit',
+])
+const VENDOR_TYPES = new Set(['.js', '.mjs', '.css', '.woff2'])
+const NODE_MODULES = path.join(ROOT, 'node_modules')
+
+function vendorFile(pathname: string): string | null {
+  const rel = decodeURIComponent(pathname.slice('/vendor/'.length))
+  const parts = rel.split('/')
+  const pkg = parts[0].startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+  if (!VENDOR_PACKAGES.has(pkg) || !VENDOR_TYPES.has(path.extname(rel))) return null
+  const file = path.resolve(NODE_MODULES, rel)
+  return file.startsWith(path.join(NODE_MODULES, pkg) + path.sep) ? file : null
 }
 
 function serveStatic(url: URL, res: http.ServerResponse) {
-  const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
-  const vendor = VENDOR[url.pathname]
-  const file = vendor ? path.join(ROOT, vendor) : path.join(WEB, rel)
-  if ((!vendor && !file.startsWith(WEB + path.sep)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) throw new HttpError(404, 'not found')
-  res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-cache' })
+  let file: string | null
+  if (url.pathname.startsWith('/vendor/')) file = vendorFile(url.pathname)
+  else {
+    file = path.resolve(WEB, '.' + (url.pathname === '/' ? '/index.html' : url.pathname))
+    if (!file.startsWith(WEB + path.sep)) file = null
+    // App routes such as /s/main or /timeline have no file of their own: they all load the app.
+    else if (!path.extname(url.pathname) && !fs.existsSync(file)) file = path.join(WEB, 'index.html')
+  }
+  if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) throw new HttpError(404, 'not found')
+  const headers: Record<string, string> = { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' }
+  // Fonts and libraries only change when node_modules does; everything else is revalidated on each load.
+  headers['cache-control'] = url.pathname.startsWith('/vendor/') ? 'public, max-age=86400' : 'no-cache'
+  res.writeHead(200, headers)
   fs.createReadStream(file).pipe(res)
 }
 
@@ -300,7 +350,7 @@ export async function start() {
     server.once('error', reject)
     server.listen(config.port, config.host, resolve)
   })
-  console.log(`claude-hub listening on http://${config.host}:${config.port}`)
+  console.log(`neural listening on http://${config.host}:${config.port}`)
 
   if (config.autostart && !sessions.get('main')) {
     fs.mkdirSync(config.orchestratorCwd, { recursive: true })

@@ -527,6 +527,13 @@ test('each session shows the model and effort it is using', async () => {
     message: { role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'done' }] },
   }) + '\n')
   await until('model from transcript', async () => (await session('main')).model === 'claude-opus-5-5')
+  // A /model or /effort run in the terminal records its result in the transcript.
+  const { modelInfo } = await import('../server/src/ingest.ts')
+  const cmd = (text: string) => ({ type: 'user', message: { role: 'user', content: `<local-command-stdout>${text}</local-command-stdout>` } })
+  assert.deepEqual(modelInfo(cmd('Set model to `Opus 5.5` and saved as your default for new sessions')), { model: 'Opus 5.5', effort: undefined })
+  assert.deepEqual(modelInfo(cmd('Set effort level to xhigh (saved as your default for new sessions)')), { model: undefined, effort: 'xhigh' })
+  assert.equal(modelInfo(cmd('Context left: 40%')), null)
+  assert.equal(modelInfo({ type: 'assistant', isSidechain: true, message: { model: 'claude-haiku-5-5' } }), null)
   assert.equal((await session('main')).effort, 'max')
 })
 

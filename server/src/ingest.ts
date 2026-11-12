@@ -24,6 +24,21 @@ const insert = db.prepare(
 )
 const messageTarget = db.prepare("SELECT target FROM outbox WHERE message_id = ? AND state = 'pushed'")
 
+/** The model and effort a transcript line reveals: Claude's replies carry both, and /model and /effort record
+ *  their result as "Set model to `Opus 5.5`" / "Set effort level to high". */
+export function modelInfo(entry: any): { model?: string; effort?: string } | null {
+  if (entry?.isSidechain) return null
+  if (entry?.type === 'assistant') {
+    const effort = typeof entry.effort === 'string' ? entry.effort : entry.effort?.level
+    return entry.message?.model ? { model: entry.message.model, effort } : null
+  }
+  const content = entry?.message?.content
+  if (entry?.type !== 'user' || typeof content !== 'string' || !content.includes('<local-command-stdout>')) return null
+  const model = /Set model to `?([^`\n(]+?)`?(?:\s+and\b|\s*\(|\s*<|$)/.exec(content)?.[1]?.trim()
+  const effort = /Set effort(?: level)? to `?(low|medium|high|xhigh|max)\b/i.exec(content)?.[1]?.toLowerCase()
+  return model || effort ? { model, effort } : null
+}
+
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + ' …' : s)
 
 /** The searchable text of one transcript entry, or null when it carries none (for example thinking only). */
@@ -58,7 +73,7 @@ function nameFor(claudeSessionId: string, cache: Map<string, string | null>) {
 
 function ingestLines(lines: string[], project: string, names: Map<string, string | null>) {
   let added = 0
-  const latest = new Map<string, { model?: string; effort?: unknown }>()
+  const latest = new Map<string, { model?: string; effort?: string }>()
   db.exec('BEGIN')
   try {
     for (const line of lines) {
@@ -71,9 +86,10 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
         continue
       }
       if ((entry.type !== 'user' && entry.type !== 'assistant') || !entry.uuid || !entry.sessionId) continue
-      if (entry.type === 'assistant' && !entry.isSidechain) {
+      const info = modelInfo(entry)
+      if (info) {
         const owner = nameFor(entry.sessionId, names)
-        if (owner) latest.set(owner, { model: entry.message?.model, effort: entry.effort })
+        if (owner) latest.set(owner, { ...latest.get(owner), ...Object.fromEntries(Object.entries(info).filter(([, v]) => v)) })
       }
       const found = extract(entry)
       if (!found) continue
@@ -99,7 +115,7 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
     throw e
   }
   // Only lines appended since the last pass are read, so this reflects the newest turns.
-  for (const [name, v] of latest) noteModel(name, v.model, typeof v.effort === 'string' ? v.effort : (v.effort as any)?.level)
+  for (const [name, v] of latest) noteModel(name, v.model, v.effort)
   return added
 }
 
@@ -169,11 +185,11 @@ export async function ingestAll(): Promise<{ files: number; added: number }> {
   return { files, added }
 }
 
-/** Fill in each session's model and effort from the newest reply in its transcript (for sessions that have
- *  been quiet since Neural started, so no new lines would report it). Reads only the end of each file. */
+/** Each session's current model and effort from the end of its transcript, at startup: sessions that have been
+ *  quiet since Neural started, or switched model before it watched for that, show the right thing at once. */
 export function seedModels() {
   for (const s of sessions.all()) {
-    if (s.model || !s.transcript_path) continue
+    if (!s.transcript_path) continue
     try {
       const size = fs.statSync(s.transcript_path).size
       const fd = fs.openSync(s.transcript_path, 'r')
@@ -181,19 +197,22 @@ export function seedModels() {
       const buf = Buffer.alloc(size - start)
       fs.readSync(fd, buf, 0, buf.length, start)
       fs.closeSync(fd)
-      const lines = buf.toString('utf8').split('\n').reverse()
-      for (const line of lines) {
-        if (!line.includes('"type":"assistant"') || line.includes('"isSidechain":true')) continue
+      // Newest first: the first model and the first effort found are the current ones.
+      let model: string | undefined
+      let effort: string | undefined
+      for (const line of buf.toString('utf8').split('\n').reverse()) {
+        if (!line.includes('"type":"assistant"') && !line.includes('local-command-stdout')) continue
+        let info: ReturnType<typeof modelInfo> = null
         try {
-          const e = JSON.parse(line)
-          if (e.message?.model) {
-            noteModel(s.name, e.message.model, typeof e.effort === 'string' ? e.effort : e.effort?.level)
-            break
-          }
+          info = modelInfo(JSON.parse(line))
         } catch {
-          // a partial first line from the cut; keep looking
+          continue // a partial first line from the cut
         }
+        model ??= info?.model
+        effort ??= info?.effort
+        if (model && effort) break
       }
+      noteModel(s.name, model, effort)
     } catch {
       // transcript gone; the next reply reports it
     }

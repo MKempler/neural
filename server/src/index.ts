@@ -15,7 +15,7 @@ import {
 import { ingestAll } from './ingest.ts'
 import * as push from './push.ts'
 import * as terminal from './terminal.ts'
-import { receiveUpload, publicView, getAttachment, serveFile } from './files.ts'
+import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from './files.ts'
 import { backupNow, listBackups } from './backup.ts'
 import { spawn } from 'node:child_process'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
@@ -295,7 +295,10 @@ function onUi(ws: WebSocket) {
   ws.on('message', data => {
     try {
       const msg = JSON.parse(String(data))
-      if (msg.type === 'presence') (ws as any).hubVisible = Boolean(msg.visible)
+      if (msg.type === 'presence') {
+        ;(ws as any).hubVisible = Boolean(msg.visible)
+        ;(ws as any).hubSeen = Date.now()
+      }
     } catch {
       // ignore anything that is not JSON
     }
@@ -397,6 +400,7 @@ export async function start() {
   tick(retryStale, config.retryMs)
   tick(async () => void (await ingestAll()), config.ingestMs)
   tick(async () => void (await embedPending()), config.embedMs)
+  tick(async () => void cleanUnsent(), 60 * 60_000)
   if (config.backups) {
     // Makes today's snapshot if there isn't one: shortly after start, then hourly.
     const snapshot = async () => void backupNow()

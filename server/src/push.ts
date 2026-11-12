@@ -64,8 +64,10 @@ export function subscriptionCount() {
 }
 
 /** True while some browser tab has the hub open and in front; there is no need to notify then. */
+/** True while some tab has Neural in front and someone used it in the last two minutes (tabs report every minute while active). */
 function someoneWatching() {
-  for (const ws of uiClients) if ((ws as any).hubVisible) return true
+  const fresh = Date.now() - 150_000
+  for (const ws of uiClients) if ((ws as any).hubVisible && ((ws as any).hubSeen ?? 0) > fresh) return true
   return false
 }
 

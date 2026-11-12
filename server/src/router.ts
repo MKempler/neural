@@ -175,7 +175,7 @@ export function channelConnected(name: string) {
   else {
     sessionChanged(name)
     // A reconnect (hub restart) may have dropped pushes that were in flight; send them again.
-    for (const row of outbox.pushed(name)) outbox.markPending(row.message_id, 'channel reconnected')
+    for (const row of outbox.pushed(name)) outbox.requeue(row.message_id, 'channel reconnected')
     setTimeout(() => flush(name), 1500)
   }
 }

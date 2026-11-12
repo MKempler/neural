@@ -1,7 +1,10 @@
 /* ------------------------------------------------------------------------------------------- */
 /* Shell                                                                                         */
 
-.app { position: fixed; inset: 0; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); }
+.app {
+  position: fixed; left: 0; right: 0; top: var(--app-top, 0); height: var(--app-h, 100%);
+  display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); background: var(--bg);
+}
 .main { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .page { width: 100%; max-width: 1120px; margin: 0 auto; padding: 40px 40px 64px; }
@@ -511,8 +514,7 @@ button.result:hover { background: var(--surface-2); }
 .tile-tag { left: 4px; top: 4px; padding: 2px 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.6); }
 .tile-state { left: 0; right: 0; bottom: 12px; text-align: center; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); border: 0; background: none; padding: 0; }
 .tile-state.bad { color: var(--bad); text-shadow: none; text-decoration: underline; bottom: 8px; font-size: 11px; }
-.tray-error { flex-basis: 100%; font: 11px/1.4 var(--mono); color: var(--bad); }
-.tray { flex-wrap: wrap; }
+.tray-error { margin-top: 4px; font: 11px/1.4 var(--mono); color: var(--bad); overflow-wrap: anywhere; }
 .tile-x {
   position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
   display: grid; place-items: center; background: rgba(0, 0, 0, 0.65); color: #fff;
@@ -554,3 +556,17 @@ button.result:hover { background: var(--surface-2); }
 .lightbox img { max-width: 100%; max-height: calc(100dvh - 110px); object-fit: contain; border-radius: var(--r); }
 .lightbox-bar { display: flex; align-items: center; gap: 8px; max-width: 100%; font: 12px/1.4 var(--mono); color: #c9ccd1; }
 .lightbox-bar .truncate { min-width: 0; margin-right: 6px; }
+
+/* Phone: whatever the screen shows beyond the app (the home-indicator strip) matches the bars, and the
+   tab bar steps aside while the keyboard is up, as native apps do. */
+@media (max-width: 860px) {
+  html, body { background: var(--surface); overflow: hidden; }
+  .keyboard .tabbar { display: none; }
+  .keyboard .composer-wrap { padding-bottom: 8px; }
+}
+.viewport-info {
+  position: fixed; z-index: 90; left: 8px; right: 8px; top: calc(var(--app-top, 0px) + 60px); padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-card); background: var(--surface);
+  font: 11px/1.5 var(--mono); color: var(--text-2); white-space: pre-wrap;
+}
+.topbar .conn-dot { border: 0; background: none; padding: 8px; margin: -8px; display: grid; place-items: center; }

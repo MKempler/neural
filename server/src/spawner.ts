@@ -102,7 +102,7 @@ export async function startSession(
   turns.delete(name)
   permissions.expire(name)
   // Whatever was pushed to the previous process without confirmation goes out again once this one is ready.
-  for (const row of outbox.pushed(name)) outbox.markPending(row.message_id, 'session restarted')
+  for (const row of outbox.pushed(name)) outbox.requeue(row.message_id, 'session restarted')
 
   // The channel server negotiates the earlier MCP handshake; newer revisions do not register channels.
   const env = { MCP_PROTOCOL_NEGOTIATION: 'legacy' }
@@ -247,10 +247,15 @@ export function waitFor(name: string, until: string[], timeoutMs: number): Promi
 export async function reconcile() {
   for (const row of sessions.all()) {
     if (row.status === 'stopped') continue
-    if (await mux.alive(row.name)) continue
+    const alive = await mux.alive(row.name)
     // Read the row again: it may have been stopped or restarted while tmux was being asked.
     const s = sessions.get(row.name)
     if (!s || s.status === 'stopped') continue
+    if (alive) {
+      // Ten minutes up since the last (re)start: it's healthy again, so later crashes get the full retry budget.
+      if (s.restarts && s.channel_connected && Date.now() - Date.parse(s.updated_at) > 10 * 60_000) markHealthy(s.name)
+      continue
+    }
     if (s.status === 'starting' && Date.now() - Date.parse(s.updated_at) < 10_000) continue
     if (s.status !== 'exited') {
       let screen = ''

@@ -176,6 +176,9 @@ export const outbox = {
     q(`UPDATE outbox SET state = 'pushed', via = ?, attempts = attempts + 1, pushed_at = ${NOW}, last_error = NULL WHERE message_id = ?`).run(via, id),
   markPending: (id: number, error: string) =>
     q("UPDATE outbox SET state = 'pending', last_error = ? WHERE message_id = ?").run(error, id),
+  /** Send again because the connection was replaced, not because delivery failed: the attempt doesn't count. */
+  requeue: (id: number, reason: string) =>
+    q("UPDATE outbox SET state = 'pending', attempts = max(attempts - 1, 0), last_error = ? WHERE message_id = ? AND state = 'pushed'").run(reason, id),
   markAcked: (id: number, by: string) =>
     q(`UPDATE outbox SET state = 'acked', acked_at = ${NOW}, acked_by = ? WHERE message_id = ? AND state != 'acked'`).run(by, id),
   markFailed: (id: number, error: string) =>

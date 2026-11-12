@@ -2,6 +2,7 @@
 import { html } from '../lib.js'
 import { Icon, Glyph } from '../icons.js'
 import { Dot, Link } from './parts.js'
+import { toggleViewportInfo } from '../viewport.js'
 import {
   connected, route, sessionList, totalUnread, paletteOpen, newSessionOpen, navigate, sessionPath,
 } from '../store.js'
@@ -54,7 +55,9 @@ export function TopBar() {
   return html`<header class="topbar">
     <${Brand} />
     <div class="end">
-      <${Dot} status=${connected.value ? 'online' : 'offline'} />
+      <button class="conn-dot" aria-label=${connected.value ? 'Connected. Tap for screen details' : 'Reconnecting'} onClick=${toggleViewportInfo}>
+        <${Dot} status=${connected.value ? 'online' : 'offline'} />
+      </button>
     </div>
   </header>`
 }

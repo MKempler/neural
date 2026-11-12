@@ -7,6 +7,7 @@ import { Home, Sessions } from './views/Home.js'
 import { Session } from './views/Session.js'
 import { Timeline, Search } from './views/Lists.js'
 import { setupPush } from './push.js'
+import { viewportInfo, toggleViewportInfo } from './viewport.js'
 import { connect, loaded, route, paletteOpen, totalUnread } from './store.js'
 
 function App() {
@@ -47,6 +48,7 @@ function App() {
     <${Palette} />
     <${NewSession} />
     <${Lightbox} />
+    ${viewportInfo.value && html`<div class="viewport-info" onClick=${toggleViewportInfo}>${viewportInfo.value}</div>`}
   </div>`
 }
 

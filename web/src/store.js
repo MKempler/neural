@@ -194,8 +194,20 @@ export function readLatest(name) {
   if (last) markRead(name, last.id)
 }
 
+// The server skips push notifications while a tab is being watched. A tab only counts while it is in front and
+// someone has touched, typed or scrolled in the last two minutes, so a laptop left open doesn't silence the phone.
+let lastActive = Date.now()
+const ACTIVE_MS = 120_000
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => {
+  const wasIdle = Date.now() - lastActive > ACTIVE_MS
+  lastActive = Date.now()
+  if (wasIdle) sendPresence()
+}, { passive: true, capture: true })
+setInterval(sendPresence, 60_000)
+
 function sendPresence() {
-  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'presence', visible: !document.hidden }))
+  const watching = !document.hidden && Date.now() - lastActive < ACTIVE_MS
+  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'presence', visible: watching }))
 }
 document.addEventListener('visibilitychange', () => {
   sendPresence()

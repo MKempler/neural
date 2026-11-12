@@ -448,6 +448,32 @@ test('a session can attach a file to its reply', async () => {
   await idle('main')
 })
 
+test('unsent uploads are cleaned up; sent ones are kept', async () => {
+  const { cleanUnsent } = await import('../server/src/files.ts')
+  const { db } = await import('../server/src/db.ts')
+  const up = await upload('forgotten.png', PNG, 'image/png')
+  const file = db.prepare('SELECT path FROM attachments WHERE id = ?').get(up.body.id) as { path: string }
+  assert.ok(fs.existsSync(file.path))
+  assert.equal(cleanUnsent(24), 0) // too recent
+  db.prepare("UPDATE attachments SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(up.body.id)
+  const sentBefore = (db.prepare('SELECT count(*) AS n FROM attachments WHERE message_id IS NOT NULL').get() as any).n
+  assert.equal(cleanUnsent(24), 1)
+  assert.ok(!fs.existsSync(file.path))
+  assert.equal((db.prepare('SELECT count(*) AS n FROM attachments WHERE message_id IS NOT NULL').get() as any).n, sentBefore)
+})
+
+test('a reconnect does not count as a failed delivery attempt', async () => {
+  const { outbox, messages } = await import('../server/src/db.ts')
+  const m = messages.insert({ from: 'user', to: 'w1', body: 'x', source: 'ui' })
+  outbox.add(m.id, 'w1')
+  outbox.markPushed(m.id, 'channel')
+  outbox.requeue(m.id, 'channel reconnected')
+  outbox.markPushed(m.id, 'channel')
+  outbox.requeue(m.id, 'channel reconnected')
+  const row = outbox.pending('w1').find(r => r.message_id === m.id)
+  assert.equal(row?.attempts, 0)
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

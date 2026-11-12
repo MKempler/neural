@@ -159,7 +159,9 @@ export function useAttachments() {
     list.forEach(it => it.preview && URL.revokeObjectURL(it.preview))
     return []
   })
-  useEffect(() => () => items.forEach(it => it.preview && URL.revokeObjectURL(it.preview)), [])
+  const latest = useRef(items)
+  latest.current = items
+  useEffect(() => () => latest.current.forEach(it => it.preview && URL.revokeObjectURL(it.preview)), [])
   const pending = items.some(it => it.status === 'uploading' || it.status === 'processing')
   const failed = items.some(it => it.status === 'error')
   const ready = items.filter(it => it.status === 'ready').map(it => it.server.id)
@@ -168,8 +170,9 @@ export function useAttachments() {
 
 function Tray({ att }) {
   if (!att.items.length) return null
-  return html`<div class="tray">
-    ${att.items.map(it => html`<div class=${`tile ${it.status}`} key=${it.key} title=${it.error || it.name}>
+  const errors = att.items.filter(it => it.status === 'error')
+  return html`<div class="tray-wrap"><div class="tray">
+    ${att.items.map(it => html`<div class=${`tile ${it.status}`} key=${it.key} title=${it.name}>
       ${it.kind === 'image' && it.preview ? html`<img src=${it.preview} alt="" onError=${e => (e.currentTarget.style.visibility = 'hidden')} />`
         : it.kind === 'video' && it.preview ? html`<video src=${`${it.preview}#t=0.1`} muted playsinline preload="metadata"></video>`
         : html`<div class="tile-file"><${Icon} name="file" /><span>${it.name.split('.').pop()?.slice(0, 4)}</span></div>`}
@@ -180,7 +183,8 @@ function Tray({ att }) {
       ${it.status === 'error' && html`<button type="button" class="tile-state bad" onClick=${() => att.retry(it.key)}>retry</button>`}
       <button type="button" class="tile-x" aria-label=${`Remove ${it.name}`} onClick=${() => att.remove(it.key)}><${Icon} name="x" size=${12} /></button>
     </div>`)}
-    ${att.items.filter(it => it.status === 'error').map(it => html`<div class="tray-error" key=${`e${it.key}`}>${it.name}: ${it.error}</div>`)}
+  </div>
+  <div role="alert">${errors.map(it => html`<div class="tray-error" key=${`e${it.key}`}>${it.name}: ${it.error}</div>`)}</div>
   </div>`
 }
 

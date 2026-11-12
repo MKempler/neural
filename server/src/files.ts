@@ -206,6 +206,20 @@ export function claimFor(messageId: number, ids: number[]) {
   }
 }
 
+const unsent = db.prepare("SELECT * FROM attachments WHERE message_id IS NULL AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)")
+const drop = db.prepare('DELETE FROM attachments WHERE id = ?')
+
+/** Delete uploads that were attached in the app but never sent. Returns how many were removed. */
+export function cleanUnsent(olderThanHours = 24): number {
+  const rows = unsent.all(`-${olderThanHours} hours`) as Attachment[]
+  for (const a of rows) {
+    const extra = a.frames ? (JSON.parse(a.frames) as string[]) : []
+    for (const f of [a.path, a.view_path, a.poster_path, ...extra]) if (f) fs.rmSync(f, { force: true })
+    drop.run(a.id)
+  }
+  return rows.length
+}
+
 export function getAttachment(id: number) {
   return byId.get(id) as Attachment | undefined
 }

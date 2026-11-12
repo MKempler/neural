@@ -21,6 +21,9 @@ export function attach(ws: WebSocket, name: string, cols: number, rows: number) 
   // The status bar is noise in a small browser pane.
   execFile('tmux', ['-L', config.tmuxSocket, 'set-option', '-g', 'status', 'off'], () => {})
 
+  // While a browser is attached, the window follows its size; afterwards it goes back to the size sessions start with,
+  // so a phone-width view doesn't leave Claude's terminal (and the startup-prompt matching) squeezed.
+  execFile('tmux', ['-L', config.tmuxSocket, 'set-option', '-w', '-t', `=${name}:`, 'window-size', 'latest'], () => {})
   const term = pty.spawn('tmux', ['-L', config.tmuxSocket, 'attach-session', '-t', `=${name}`], {
     name: 'xterm-256color',
     cols: clamp(cols, 20, 400),
@@ -46,12 +49,16 @@ export function attach(ws: WebSocket, name: string, cols: number, rows: number) 
   })
 
   // Killing the pty detaches this client only; the session itself keeps running in tmux.
+  let ended = false
   const end = () => {
+    if (ended) return
+    ended = true
     try {
       term.kill()
     } catch {
       // already gone
     }
+    setTimeout(() => execFile('tmux', ['-L', config.tmuxSocket, 'resize-window', '-t', `=${name}:`, '-x', '200', '-y', '50'], () => {}), 300)
   }
   ws.on('close', end)
   ws.on('error', end)

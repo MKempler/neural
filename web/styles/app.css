@@ -121,7 +121,7 @@ kbd {
 .pill.exited { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 
 .tag {
-  display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px;
+  display: inline-flex; align-items: center; flex: none; height: 20px; padding: 0 7px; border-radius: 4px; white-space: nowrap;
   background: var(--surface-3); color: var(--text-2); font: 500 11px/1 var(--mono);
 }
 .tag.accent { background: var(--accent-tint); color: var(--accent); }
@@ -710,3 +710,5 @@ button.result:hover { background: var(--surface-2); }
   .msg.command { align-items: flex-end; }
   .msg.command .foot { display: none; }
 }
+
+.plus-menu.down { bottom: auto; top: calc(100% + 10px); }

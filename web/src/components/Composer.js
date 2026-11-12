@@ -122,6 +122,7 @@ export function Composer({ placeholder, onSend, hint, autofocus, variant = 'comp
   const [text, setText] = useState(() => (draftKey ? drafts.get(draftKey) : ''))
   const [busy, setBusy] = useState(false)
   const [menu, setMenu] = useState(false)
+  const [menuDown, setMenuDown] = useState(false)
   const ref = useAutosize(text)
   const pickers = { media: useRef(null), camera: useRef(null), file: useRef(null) }
   const att = useAttachments()
@@ -215,10 +216,14 @@ export function Composer({ placeholder, onSend, hint, autofocus, variant = 'comp
       ${variant === 'quick' && hint}
       <div class="plus">
         <button type="button" class=${`btn ghost icon-only attach ${menu ? 'on' : ''}`} aria-label="Add photos, videos or files"
-          aria-expanded=${menu} onClick=${() => setMenu(!menu)}><${Icon} name="plus" /></button>
-        ${menu && html`<div class="plus-menu" role="menu">
+          aria-expanded=${menu} onClick=${e => {
+            // Open upward by default (the box is usually at the bottom); downward when there's no room above.
+            setMenuDown(e.currentTarget.getBoundingClientRect().top < 280)
+            setMenu(!menu)
+          }}><${Icon} name="plus" /></button>
+        ${menu && html`<div class=${`plus-menu ${menuDown ? 'down' : ''}`} role="menu">
           <button type="button" role="menuitem" onClick=${() => pick('media')}><${Icon} name="image" />Photos and videos</button>
-          <button type="button" role="menuitem" onClick=${() => pick('camera')}><${Icon} name="camera" />Take photo or video</button>
+          ${coarse() && html`<button type="button" role="menuitem" onClick=${() => pick('camera')}><${Icon} name="camera" />Take photo or video</button>`}
           <button type="button" role="menuitem" onClick=${() => pick('file')}><${Icon} name="file" />Choose files</button>
           ${!coarse() && html`<div class="plus-hint">You can also paste or drop files here</div>`}
         </div>`}

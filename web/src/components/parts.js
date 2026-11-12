@@ -180,6 +180,7 @@ function Tray({ att }) {
       ${it.status === 'error' && html`<button type="button" class="tile-state bad" onClick=${() => att.retry(it.key)}>retry</button>`}
       <button type="button" class="tile-x" aria-label=${`Remove ${it.name}`} onClick=${() => att.remove(it.key)}><${Icon} name="x" size=${12} /></button>
     </div>`)}
+    ${att.items.filter(it => it.status === 'error').map(it => html`<div class="tray-error" key=${`e${it.key}`}>${it.name}: ${it.error}</div>`)}
   </div>`
 }
 

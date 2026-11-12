@@ -35,12 +35,16 @@ export function Icon({ name, size = 16, label }) {
   </svg>`
 }
 
-/** Three nodes, two links: the Neural mark. The live node carries the accent colour. */
-export function Glyph({ size = 18 }) {
-  return html`<svg class="glyph" width=${size} height=${size} viewBox="0 0 20 20" aria-hidden="true">
-    <path d="M4.5 14.5 10 5.5l5.5 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-    <circle cx="4.5" cy="14.5" r="2.3" fill="currentColor" />
-    <circle cx="15.5" cy="13.5" r="2.3" fill="currentColor" />
-    <circle class="node-live" cx="10" cy="5.5" r="2.6" />
+/** The Neural mark: a brain drawn as a network, simplified so it holds up at 20-28px. The live node is green. */
+const O = [[4, 13.5], [4.5, 7.5], [9.5, 3.5], [15.5, 4], [19.5, 9], [18, 14.5], [11, 15.5]]
+const STEM = [13.5, 20]
+const LIVE = [9.5, 9.5]
+const LINKS = [...O.map((p, i) => [p, O[(i + 1) % O.length]]), [O[6], STEM], [LIVE, O[1]], [LIVE, O[3]], [LIVE, O[6]], [LIVE, O[5]]]
+
+export function Glyph({ size = 24 }) {
+  return html`<svg class="glyph" width=${size} height=${size} viewBox="0 0 24 24" aria-hidden="true">
+    ${LINKS.map(([a, b]) => html`<line x1=${a[0]} y1=${a[1]} x2=${b[0]} y2=${b[1]} stroke="currentColor" stroke-opacity="0.7" stroke-width="1.3" stroke-linecap="round" />`)}
+    ${[...O, STEM].map(([x, y]) => html`<circle cx=${x} cy=${y} r="1.75" fill="currentColor" />`)}
+    <circle class="node-live" cx=${LIVE[0]} cy=${LIVE[1]} r="2.5" />
   </svg>`
 }

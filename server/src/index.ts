@@ -60,7 +60,7 @@ function checkBrowser(req: http.IncomingMessage) {
 }
 
 function withSummary(s: ReturnType<typeof sessions.all>[number]) {
-  return { ...s, last_message: reads.last(s.name), unread: reads.unread(s.name), activity: doing.get(s.name) ?? null }
+  return { ...s, last_message: reads.last(s.name), last_reply: reads.lastReply(s.name), unread: reads.unread(s.name), activity: doing.get(s.name) ?? null }
 }
 
 /** First name for the greeting: config.json, then the Tailscale identity of the request, else nothing. */

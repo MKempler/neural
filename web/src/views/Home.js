@@ -14,7 +14,7 @@ export function Home() {
   const name = user.value.name
   const perms = permissions.value
   const troubled = list.filter(s => ['attention', 'exited'].includes(s.status) || (s.status === 'blocked' && !perms.some(p => p.session === s.name)))
-  const unread = list.filter(s => s.unread > 0 && s.last_message)
+  const unread = list.filter(s => s.unread > 0 && (s.last_reply ?? s.last_message))
   const needs = perms.length + troubled.length + unread.length
   const main = orchestrator.value
 
@@ -35,7 +35,7 @@ export function Home() {
         ${troubled.map(s => html`<${Trouble} s=${s} key=${`t${s.name}`} />`)}
         ${unread.map(s => html`<div class="alert info clickable compact" key=${`u${s.name}`} onClick=${() => navigate(sessionPath(s.name))}>
           <${Dot} status="working" />
-          <div class="truncate"><span class="who">${s.name}</span> <span class="what">${excerpt(s.last_message)}</span></div>
+          <div class="truncate"><span class="who">${s.name}</span> <span class="what">${excerpt(s.last_reply ?? s.last_message)}</span></div>
           <div class="actions"><span class="badge">${s.unread}</span></div>
         </div>`)}
       </div>

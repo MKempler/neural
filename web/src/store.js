@@ -140,7 +140,7 @@ function handle(ev) {
           const s = sessions.value[name]
           if (!s) continue
           const fromSession = m.from_name === name && m.to_name === 'user'
-          patchSession(name, { last_message: m, unread: (s.unread ?? 0) + (fromSession && !isReading(name) ? 1 : 0) })
+          patchSession(name, { last_message: m, ...(fromSession ? { last_reply: m } : {}), unread: (s.unread ?? 0) + (fromSession && !isReading(name) ? 1 : 0) })
         }
       })
       if (m.to_name === 'user' && isReading(m.from_name)) markRead(m.from_name, m.id)

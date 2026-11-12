@@ -141,6 +141,13 @@ export const reads = {
               (SELECT count(*) FROM attachments a WHERE a.message_id = messages.id) AS files
        FROM messages WHERE id = (SELECT max(id) FROM messages WHERE from_name = ?1 OR to_name = ?1)`,
     ).get(name) ?? null,
+  /** The session's latest reply to the user, for "unread" previews. */
+  lastReply: (name: string) =>
+    q<Summary>(
+      `SELECT id, from_name, to_name, substr(body, 1, 400) AS body, ts, source,
+              (SELECT count(*) FROM attachments a WHERE a.message_id = messages.id) AS files
+       FROM messages WHERE id = (SELECT max(id) FROM messages WHERE from_name = ?1 AND to_name = 'user')`,
+    ).get(name) ?? null,
   /** Replies from a session to the user that the user has not seen yet. */
   unread: (name: string) =>
     (q<{ n: number }>(

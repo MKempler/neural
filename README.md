@@ -1,177 +1,242 @@
 # Neural
 
-A command center for Claude Code: run several sessions on this Mac and talk to all of them from a browser or
-phone.
+**A command center for Claude Code.** Run several Claude Code sessions on your own computer, let one of them
+direct the others, and talk to all of them from your browser or your phone, with a permanent, searchable
+memory of everything that was said.
 
-- One session, `main`, is the **orchestrator**. It has tools to start, message, inspect and stop the others.
-- Messages you type in the web UI are **pushed** into the session through a Claude Code
-  [channel](https://code.claude.com/docs/en/channels-reference), so the session never polls for them.
-- Sessions can message each other, and every message is stored in a SQLite database.
-- Every Claude Code transcript on the machine is archived into the same database, so history stays
-  searchable after Claude Code's 30-day cleanup. Sessions search it with the `search_history` tool.
+**Neural is free and open source under the [MIT licence](LICENSE).** Anyone can use it, change it, self-host
+it or build on it, for personal or commercial work, with no sign-up, no account and no telemetry. It runs
+entirely on your own machine.
 
-## Requirements
+![Neural on a laptop: the Home dashboard with three sessions, an approval waiting, and recent activity](docs/screenshots/home.png)
 
-Node 22.18 or newer, tmux (`brew install tmux`), and Claude Code signed in with a claude.ai account.
-Run `bin/neural doctor` to check.
+![Neural on a phone: Home, a conversation with the orchestrator, and a session at work with its live activity line](docs/screenshots/phone.png)
 
-## Start
+## Why Neural
 
-```sh
-npm install
-bin/neural start        # web UI on http://127.0.0.1:7777
+Claude Code is at its best when you give it focused jobs, but juggling several terminals gets old quickly,
+and stepping away from the desk means losing touch with all of them. Neural turns those sessions into one
+place you can work from anywhere:
+
+- **One orchestrator, many workers.** A session called `main` can start new sessions in any folder, hand
+  them work, read their terminals, wait for them to finish and report back to you.
+- **Messages are pushed, never polled.** What you type in Neural arrives in the session straight away
+  through Claude Code [channels](https://code.claude.com/docs/en/channels-reference). Sessions can message
+  each other the same way.
+- **Your phone is a first-class client.** Neural installs as a home-screen app, with push notifications,
+  approve/deny buttons for permission prompts, photos and videos, and a live terminal you can type into.
+- **Nothing is forgotten.** Every message, and every Claude Code transcript on the machine, goes into a
+  local database. Sessions can search it by keyword or by meaning when they need something from last week.
+- **It keeps itself running.** Crashed sessions resume their conversations, undelivered messages are
+  retried, the server starts at login, and the database is backed up daily.
+
+## Open source, for anyone
+
+- **Licence:** [MIT](LICENSE). Use it at home or at work, fork it, sell something built on it. The only
+  condition is keeping the copyright and licence notice with copies of the code.
+- **Your machine, your data:** the server listens on your computer only. Conversations, uploads, search
+  indexes and backups live in `~/.local/share/neural`. Neural itself sends nothing anywhere; your sessions
+  talk to Anthropic exactly as Claude Code always does.
+- **No build step:** the web app is plain JavaScript modules (Preact and htm) loaded straight from
+  `node_modules`, and the server runs TypeScript directly on Node. Reading or changing the code needs no
+  toolchain.
+- **Contributions welcome:** issues, ideas and pull requests are all appreciated. See
+  [Contributing](#contributing).
+
+Neural is an independent project. It is not affiliated with or endorsed by Anthropic. Claude and Claude Code
+are trademarks of Anthropic.
+
+## What it looks like
+
+| Conversation | Search and command palette |
+| :-: | :-: |
+| ![A conversation: the orchestrator delegates to two sessions and summarises their findings](docs/screenshots/conversation.png) | ![The Cmd+K palette searching history for "currency"](docs/screenshots/search.png) |
+
+- **Home:** what needs you (approvals, stuck sessions, unread replies), a card per session with its state
+  and last message, recent activity across sessions, and a box to message `main`.
+- **Session:** the conversation, the live terminal and an activity log of what the session did. On a wide
+  screen the conversation and terminal can sit side by side.
+- **On the phone:**
+  - chat-style messages, with copy and quote on tap
+  - a composer with + for camera, photos and files, and Send that turns into Stop while the session works
+  - a live line showing what the session is doing ("Running the full test suite · 0:33")
+  - drafts kept per session, and messages that queue while you're offline
+- **Timeline** of every message, **Search** across all history, and a **⌘K** palette to jump anywhere.
+
+## How it works
+
+```mermaid
+flowchart LR
+  phone["Phone or browser"] -- "HTTPS over Tailscale<br/>(optional)" --> server
+  subgraph mac["Your computer"]
+    server["Neural server<br/>web app · message router · SQLite"]
+    server <-- "WebSocket" --> c1["channel"] <-- "MCP" --> s1["claude · main<br/>(orchestrator)"]
+    server <-- "WebSocket" --> c2["channel"] <-- "MCP" --> s2["claude · shop-api"]
+    server <-- "WebSocket" --> c3["channel"] <-- "MCP" --> s3["claude · shop-web"]
+    s1 & s2 & s3 -. "hooks: started, working, finished" .-> server
+    tmux["tmux"] --- s1 & s2 & s3
+  end
 ```
 
-The first start launches `main` in `~/.local/share/neural/orchestrator`. Each session runs in its own
-tmux window on a dedicated tmux server, so closing your terminal does not stop it.
+- Each session is an ordinary interactive `claude` process in its own tmux window, so closing your terminal
+  doesn't stop it and you can always attach to it.
+- Neural starts each session with a small MCP server, the **channel**, which pushes your messages into the
+  session and gives Claude its tools (`reply`, `send_message`, `search_history` and so on).
+- Claude Code **hooks** report each session's state back: working, waiting for approval, finished, or what
+  tool it is using right now.
+- Nothing is added to your global Claude Code settings. The channel and hooks are passed to each session on
+  its command line.
 
-```sh
-bin/neural status           # sessions and their state
-bin/neural attach main      # open a session's terminal; detach with Ctrl+B then D
-```
-
-Sessions are launched with `--dangerously-load-development-channels server:neural`, because custom channels are
-not on the research-preview allowlist. Claude Code shows a confirmation dialog for that flag on every launch;
-the hub answers it, along with the folder-trust dialog. If a session shows **Needs attention**, open its
-terminal view in the UI and answer whatever it is waiting for.
-
-## The web app
-
-- **Home** greets you and shows what needs you (approvals, stuck sessions, unread replies), a card per
-  session with its state and last message, recent activity across sessions, and a box to message `main`.
-- **Session** has three tabs: the conversation, the live terminal, and an activity log of what the session
-  did. On a wide screen the conversation and terminal can sit side by side.
-- **Timeline** lists every message, filterable by session. **Search** matches by keyword and by meaning.
-- **⌘K** (Ctrl+K) opens a palette to jump to a session, run an action or search history.
-- On a phone it uses a bottom tab bar, and can be added to the Home Screen as an app.
-- **Attachments**: the paperclip in any message box picks photos, videos or files (on iPhone: photo library,
-  camera or Files). On a laptop you can also paste or drag files in. Uploads start straight away and show
-  progress. Files are stored in `~/.local/share/neural/uploads` and the session gets their paths:
-  iPhone HEIC photos get a JPEG copy, very large photos a resized copy, and videos come with still frames
-  (via ffmpeg, `brew install ffmpeg`) because Claude can't watch video. Sessions can attach files to their
-  replies with the `files` parameter of `reply` and `send_message`. The size limit is `NEURAL_MAX_UPLOAD_MB`
-  (default 1024).
-
-The greeting name comes from `displayName` in `~/.local/share/neural/config.json`, or from your Tailscale
-identity. The UI is Preact with htm, loaded straight from `node_modules` with an import map, so there is no
-build step and the page makes no requests outside its own address.
-
-## Moving from Claude Hub
-
-An install from before the rename can be moved over with `bin/neural migrate`. It stops the old service and
-sessions, moves `~/.local/share/claude-hub` to `~/.local/share/neural`, installs the Neural login service and
-lets it resume the sessions with their conversations.
-
-## How a message travels
+### How a message travels
 
 | Path | Normally | If that fails |
 | :- | :- | :- |
-| You to a session | Pushed as a channel event | Stays queued while the session is down. If a push shows no sign of being read, it is pasted into the terminal. |
-| Session to you | The `reply` tool | The final text of the turn is captured by a `Stop` hook and shown, marked "from the terminal". |
-| Session to session | The `send_message` tool, routed through the hub | Queued until the other session is ready. |
-| Permission prompts | Allow / Deny card in the UI | Answer in the terminal view. |
+| You to a session | Pushed through the channel | Queued while the session is down. If a push shows no sign of being read, it is typed into the terminal instead. |
+| Session to you | The `reply` tool | The final text of the turn is captured by a hook and shown, marked "from the terminal". |
+| Session to session | `send_message`, routed through Neural | Queued until the other session is ready. |
+| Permission prompts | Allow / Deny in the app | Answer in the terminal view. |
 
-Session state (working, idle, waiting for approval) comes from Claude Code hooks that post to the hub. A
-session that crashes, or that was running before a reboot, is restarted with `claude --resume`, up to five
-times with a growing delay. A session you stop stays stopped.
+A session that crashes, or that was running before a reboot, is resumed with `claude --resume` and keeps its
+conversation. A session you stop stays stopped.
 
-Nothing is added to your global Claude Code settings: the channel server and hooks are passed to each
-session on its command line from files in `~/.local/share/neural/run`.
+### Tools a session gets
 
-## Tools a session gets
+- **Every session:** `reply`, `send_message`, `list_sessions`, `search_history`, `get_thread`.
+- **The orchestrator also gets:** `spawn_session`, `stop_session`, `restart_session`, `read_screen`,
+  `wait_for`.
 
-All sessions: `reply`, `send_message`, `list_sessions`, `search_history`, `get_thread`.
-Orchestrator only: `spawn_session`, `stop_session`, `restart_session`, `read_screen`, `wait_for`.
+## Get started
 
-## Phone access
+### Requirements
 
-The hub listens on localhost only. To reach it from a phone, install Tailscale on the Mac and the phone and
-publish the port to your tailnet:
+- **macOS.** Neural is built and tested on macOS. The core should work on Linux too, but the login service
+  (launchd), photo conversion (`sips`) and keep-awake (`caffeinate`) are Mac-specific. Linux support is a
+  welcome contribution.
+- **Node 22.18 or newer.**
+- **tmux:** `brew install tmux`.
+- **Claude Code**, signed in with a claude.ai account or a Console API key. Channels need one of these.
+- **Optional:**
+  - ffmpeg, to send videos to sessions as still frames (`brew install ffmpeg`)
+  - Tailscale, for phone access
 
-```sh
-tailscale serve --bg 7777
-```
-
-Serve has to be enabled once for the tailnet; the command prints a link if it is not. The UI is then at
-`https://<machine>.<tailnet>.ts.net`.
-
-To refuse anyone else on the tailnet, list the Tailscale logins that may use the UI in
-`~/.local/share/neural/config.json` (`{"allowedLogins": ["you@example.com"]}`) or in `NEURAL_ALLOWED_LOGINS`.
-Do not expose the port to the public internet: anyone who can reach the UI can type into your sessions.
-
-### Notifications
-
-Open the UI and choose **Turn on notifications**. The hub then sends a push when a session answers, needs an
-approval, or stops unexpectedly, unless a hub tab is open and in front. On an iPhone, first add the page to
-the Home Screen (Share, then Add to Home Screen) and open it from there; iOS only allows push for installed
-web apps. Notification text is encrypted for the receiving device.
-
-## Run at login
+### Install and run
 
 ```sh
-bin/neural install-service     # starts the hub at login and restarts it if it stops
-bin/neural uninstall-service
+git clone https://github.com/MKempler/neural.git
+cd neural
+npm install
+bin/neural doctor     # checks everything is in place
+bin/neural start      # web app on http://127.0.0.1:7777
 ```
 
-The service log is `~/Library/Logs/neural.log`. To load new hub code, restart the service with
-`launchctl kickstart -k gui/$(id -u)/com.neural.server`; sessions keep running and reconnect.
+The first start launches `main` in `~/.local/share/neural/orchestrator`. Open http://127.0.0.1:7777 and say
+hello.
 
-## Terminal, search and backups
+```sh
+bin/neural status            # sessions and their state
+bin/neural attach main       # open a session's terminal; detach with Ctrl+B then D
+bin/neural install-service   # start Neural at login and keep it running
+bin/neural backup            # write a database snapshot now
+```
 
-- **Terminal**: the Terminal button opens a live view of the session's terminal in the browser (a real tmux
-  client), so you can answer any prompt from the phone. **History** shows the scrollback.
-- **Search** matches by keyword and by meaning. Meaning-based search uses a small embedding model that runs
-  locally (downloaded once, about 23 MB, into `~/.local/share/neural/models`); nothing is sent anywhere.
-- **Backups**: one database snapshot a day in `~/.local/share/neural/backups`, keeping seven. `bin/neural backup`
-  makes one now. Set `NEURAL_BACKUP_DIR` to a synced folder to protect against losing the disk.
-- **Sleep**: while any session is working, the hub keeps the Mac from idle-sleeping (`caffeinate`).
+To show your name in the greeting, add `"displayName": "Your name"` to `~/.local/share/neural/config.json`.
+
+### Use it from your phone
+
+Neural only listens on your computer. The easiest safe way to reach it from a phone is
+[Tailscale](https://tailscale.com), a private network between your own devices:
+
+1. Install Tailscale on your computer and your phone, and sign in on both with the same account.
+2. Publish Neural to your private network: `tailscale serve --bg 7777`. The first time, the command prints a
+   link to enable this for your network.
+3. On the phone, open `https://<your-computer>.<your-tailnet>.ts.net` in Safari, then tap Share, **Add to
+   Home Screen**. Keep **Open as Web App** switched on.
+4. Open Neural from the Home Screen and tap **Turn on** on the notifications card.
+
+To keep other people on your Tailscale network out, list the logins allowed to use Neural in
+`~/.local/share/neural/config.json`: `{"allowedLogins": ["you@example.com"]}`.
+
+**Do not expose Neural to the public internet.** Anyone who can reach it can type into your Claude sessions,
+which can run commands on your computer.
+
+## Things to know
+
+- **Channels are a research preview.** Custom channels aren't on Anthropic's allowlist yet, so sessions start
+  with Claude Code's `--dangerously-load-development-channels` flag. Claude Code shows a confirmation for it
+  on every launch, and Neural answers it for you. If a future Claude Code version changes that prompt, a
+  session shows **Needs attention** and you can answer it from the terminal view.
+- **Sessions use auto mode.** Spawned sessions run with `--permission-mode auto`. Anything auto mode
+  escalates shows up as an Allow/Deny card.
+- **Usage adds up.** Every session uses your Claude plan or API key independently, so start only what you
+  need.
+- **Transcripts are archived.** Neural copies every Claude Code transcript on the machine into its
+  database, so they stay searchable after Claude Code's own cleanup.
 
 ## Configuration
 
-Environment variables, all optional (the older `HUB_` names still work):
+Everything is optional. Environment variables override `~/.local/share/neural/config.json`, and the older
+`HUB_` names still work.
 
 | Variable | Default | Meaning |
 | :- | :- | :- |
-| `NEURAL_PORT` | `7777` | Port for the UI and API |
-| `NEURAL_DATA_DIR` | `~/.local/share/neural` | Database, secret and per-session run files |
-| `NEURAL_ORCHESTRATOR_CWD` | `<data dir>/orchestrator` | Working directory of `main` |
+| `NEURAL_PORT` | `7777` | Port for the web app and API |
+| `NEURAL_DATA_DIR` | `~/.local/share/neural` | Database, uploads, backups and per-session files |
+| `NEURAL_ORCHESTRATOR_CWD` | `<data dir>/orchestrator` | Working folder of `main` |
 | `NEURAL_CLAUDE_BIN` | `claude` | Path to the Claude Code binary |
-| `NEURAL_ALLOWED_LOGINS` | empty | Comma-separated Tailscale logins allowed to use the UI |
-| `NEURAL_AUTOSTART` | on | Set to `0` to stop Neural starting `main` and restarting dead sessions |
 | `NEURAL_DISPLAY_NAME` | from `config.json` | Name in the greeting |
-| `NEURAL_ACK_TIMEOUT` | `90` | Seconds before an unread push falls back to a paste |
-| `NEURAL_TRANSCRIPTS_DIR` | `~/.claude/projects` | Transcripts to archive |
-| `NEURAL_EMBEDDINGS` | on | Set to `off` for keyword-only search |
-| `NEURAL_BACKUP_DIR` | `<data dir>/backups` | Where daily snapshots go |
+| `NEURAL_ALLOWED_LOGINS` | from `config.json` | Comma-separated Tailscale logins allowed to use the app |
+| `NEURAL_AUTOSTART` | on | `0` stops Neural starting `main` and restarting dead sessions |
+| `NEURAL_MAX_UPLOAD_MB` | `1024` | Largest file you can attach |
+| `NEURAL_EMBEDDINGS` | on | `off` for keyword-only search |
+| `NEURAL_BACKUP_DIR` | `<data dir>/backups` | Where daily snapshots go; point it at a synced folder for off-machine copies |
 | `NEURAL_BACKUP_KEEP` | `7` | How many snapshots to keep |
-| `NEURAL_KEEP_AWAKE` | on | Set to `off` to let the Mac sleep while sessions work |
+| `NEURAL_KEEP_AWAKE` | on | `off` lets the Mac sleep while sessions work |
+| `NEURAL_TRANSCRIPTS_DIR` | `~/.claude/projects` | Transcripts to archive |
+| `NEURAL_ACK_TIMEOUT` | `90` | Seconds before an unread push is typed into the terminal instead |
 
-## Tests
+Moving from an install made before the rename to Neural? Run `bin/neural migrate` once. It moves
+`~/.local/share/claude-hub` and the login service over, and resumes your sessions.
+
+## Contributing
+
+Pull requests, bug reports and ideas are welcome. Open an issue first for anything large, so we can agree on
+the approach.
 
 ```sh
+npm install
 npm test
 ```
 
-The suite runs the real server, tmux and channel server against `test/fake-claude.ts`, a scripted stand-in for
-Claude Code that speaks MCP and posts hooks. It covers push and reply, delivery acknowledgement, the
-lost-reply safety net, orchestrator tools, session-to-session messages, keyword and meaning-based search,
-permission relay, the paste fallback, crash recovery, startup dialogs, the transcript archive, the live
-terminal, push notifications and backups.
+The test suite runs the real server, tmux and channel against `test/fake-claude.ts`, a scripted stand-in
+for Claude Code that speaks MCP and posts hooks. So you can test everything without spending any Claude
+usage.
 
-## Layout
+Ideas that would make good contributions:
+
+- Linux support: a systemd service, and a `sips` replacement for photo conversion.
+- Voice notes recorded in the app and transcribed locally.
+- A herdr or Zellij backend behind the `Mux` interface in `server/src/mux/`.
+- Wider tests for the web app.
+
+### Project layout
 
 ```
-server/src/index.ts     HTTP, WebSockets, hooks endpoint
-server/src/router.ts    store-then-deliver, acknowledgements, fallbacks, tools
-server/src/spawner.ts   launching sessions, startup dialogs, restart loop
-server/src/ingest.ts    transcript archive
-server/src/embed.ts     semantic search
-server/src/push.ts      Web Push notifications
-server/src/terminal.ts  live terminal
-server/src/backup.ts    daily snapshots
-server/src/mux/         terminal multiplexer interface and the tmux adapter
-channel/neural-channel.ts  the channel MCP server Claude Code runs in each session
-web/src, web/styles      the web app
-orchestrator/CLAUDE.md  instructions copied into the orchestrator's directory
-db/migrations/          schema
+server/src/index.ts       HTTP, WebSockets, hook endpoint, static files
+server/src/router.ts      store-then-deliver, acknowledgements, fallbacks, session tools
+server/src/spawner.ts     launching sessions, startup prompts, crash recovery
+server/src/ingest.ts      transcript archive
+server/src/embed.ts       meaning-based search (local model + sqlite-vec)
+server/src/files.ts       attachments: storage, photo conversion, video stills
+server/src/push.ts        Web Push notifications
+server/src/terminal.ts    live terminal in the browser
+server/src/mux/           terminal multiplexer interface and the tmux backend
+channel/neural-channel.ts the channel MCP server Claude Code runs in each session
+web/src, web/styles       the web app
+orchestrator/CLAUDE.md    instructions given to the orchestrator
+db/migrations/            database schema
+bin/neural                command line
 ```
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). Free for anyone to use, modify and share.

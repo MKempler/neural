@@ -59,6 +59,9 @@ export const config = {
   reconcileMs: Number(env('RECONCILE_MS') ?? 15_000),
   restartBackoffMs: Number(env('RESTART_BACKOFF_MS') ?? 15_000),
   retryMs: Number(env('RETRY_MS') ?? 10_000),
+  // Files attached to messages, and the largest single file accepted.
+  uploadsDir: env('UPLOADS_DIR') ?? path.join(dataDir, 'uploads'),
+  maxUploadBytes: Number(env('MAX_UPLOAD_MB') ?? 1024) * 2 ** 20,
   // Daily database snapshots.
   backups: env('BACKUPS') !== 'off',
   backupDir: env('BACKUP_DIR') ?? path.join(dataDir, 'backups'),

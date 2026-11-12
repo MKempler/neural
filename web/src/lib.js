@@ -67,6 +67,22 @@ export const plain = s => s.replace(/```[\s\S]*?```/g, '[code]').replace(/[*_`#>
 /** Snippet text without Markdown syntax, keeping [match] brackets from keyword search. */
 export const unmark = s => s.replace(/```\w*/g, ' ').replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim()
 
+export function fmtBytes(n) {
+  if (n >= 2 ** 30) return `${(n / 2 ** 30).toFixed(1)} GB`
+  if (n >= 2 ** 20) return `${(n / 2 ** 20).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(n / 1024))} KB`
+}
+
+export const fmtDuration = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
+
+/** One-line preview of a message for cards and lists, including attachment-only messages. */
+export function excerpt(m) {
+  const text = plain(m?.body ?? '')
+  if (text) return text
+  const n = m?.attachments?.length ?? m?.files ?? 0
+  return n ? `${n} attachment${n === 1 ? '' : 's'}` : ''
+}
+
 export const fmtNumber = n => new Intl.NumberFormat().format(n)
 
 // ---------------------------------------------------------------------------------------------

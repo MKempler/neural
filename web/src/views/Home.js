@@ -1,6 +1,6 @@
 // Home: what needs you, every session at a glance, and recent activity.
 import { useEffect, useState } from 'preact/hooks'
-import { html, ago, clock, plain, shortPath, fmtNumber } from '../lib.js'
+import { html, ago, clock, plain, excerpt, shortPath, fmtNumber } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Composer, Dot, PermissionCard, StatusPill, Link } from '../components/parts.js'
 import { NotifySetup } from '../push.js'
@@ -26,7 +26,7 @@ export function Home() {
 
     ${main && html`<${Composer} variant="quick" placeholder=${`Message ${main.name}…`}
       hint=${html`<span class="to">→ ${main.name}</span>`}
-      onSend=${async body => { await send(main.name, body); navigate(sessionPath(main.name)) }} />`}
+      onSend=${async (body, files) => { await send(main.name, body, files); navigate(sessionPath(main.name)) }} />`}
 
     ${needs > 0 && html`<section class="section" aria-labelledby="needs">
       <div class="section-head"><span class="label" id="needs">Needs you</span><span class="count">${needs}</span><span class="rule"></span></div>
@@ -35,7 +35,7 @@ export function Home() {
         ${troubled.map(s => html`<${Trouble} s=${s} key=${`t${s.name}`} />`)}
         ${unread.map(s => html`<div class="alert info clickable compact" key=${`u${s.name}`} onClick=${() => navigate(sessionPath(s.name))}>
           <${Dot} status="working" />
-          <div class="truncate"><span class="who">${s.name}</span> <span class="what">${plain(s.last_message.body)}</span></div>
+          <div class="truncate"><span class="who">${s.name}</span> <span class="what">${excerpt(s.last_message)}</span></div>
           <div class="actions"><span class="badge">${s.unread}</span></div>
         </div>`)}
       </div>
@@ -103,7 +103,7 @@ export function SessionCard({ s }) {
       ${s.role === 'orchestrator' && html`<span class="tag accent">orchestrator</span>`}
       <span class="cwd" title=${s.cwd}>${shortPath(s.cwd)}</span>
     </div>
-    <p class="card-excerpt">${m ? html`${from && html`<span class="from">${from}: </span>`}${plain(m.body)}` : html`<span class="muted">No messages yet</span>`}</p>
+    <p class="card-excerpt">${m ? html`${from && html`<span class="from">${from}: </span>`}${excerpt(m)}` : html`<span class="muted">No messages yet</span>`}</p>
     <div class="card-foot">
       <span>${m ? ago(m.ts) : ago(s.created_at)}</span>
       ${!s.channel_connected && !['stopped', 'exited'].includes(s.status) && html`<span>· channel down</span>`}
@@ -128,7 +128,7 @@ function Activity() {
         return html`<button class="feed-row" key=${m.id} onClick=${go}>
           <span class="t">${clock(m.ts)}</span>
           <span class="route">${m.from_name === 'user' ? 'you' : m.from_name}<span class="arrow">→</span>${m.to_name === 'user' ? 'you' : m.to_name}</span>
-          <span class="body">${plain(m.body)}</span>
+          <span class="body">${excerpt(m)}</span>
         </button>`
       })}
     </div>

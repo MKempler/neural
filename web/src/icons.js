@@ -22,6 +22,11 @@ const PATHS = {
   history: 'M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.7L3 8M3 3v5h5M12 7v5l4 2',
   sessions: 'M4 5h16v5H4zM4 14h16v5H4z',
   arrow: 'M5 12h14M13 6l6 6-6 6',
+  next: 'M9 18l6-6-6-6',
+  clip: 'M21.4 11.1 12.2 20.3a6 6 0 0 1-8.5-8.5l8.6-8.6A4 4 0 1 1 18 8.8l-8.6 8.6a2 2 0 0 1-2.8-2.8l8.5-8.5',
+  download: 'M12 3v12M7 10l5 5 5-5M5 21h14',
+  file: 'M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5',
+  alert: 'M12 8v5M12 16.5v.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
 }
 
 export function Icon({ name, size = 16, label }) {

@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { html, api, clock, dayLabel, tilde, shortPath, local, unmark } from '../lib.js'
 import { Icon } from '../icons.js'
-import { Composer, Message, Menu, PermissionCard, StatusPill } from '../components/parts.js'
+import { Composer, DropZone, Message, Menu, PermissionCard, StatusPill } from '../components/parts.js'
 import { Terminal } from '../components/Terminal.js'
 import {
   sessions, threads, permissions, route, navigate, sessionPath, loadThread, loadOlder, send,
@@ -101,6 +101,7 @@ function useWide() {
 function Conversation({ s }) {
   const rows = threads.value[s.name]
   const box = useRef(null)
+  const addFiles = useRef(null)
   const stick = useRef(true)
   const [more, setMore] = useState(true)
 
@@ -138,7 +139,7 @@ function Conversation({ s }) {
     prev = m
   }
 
-  return html`
+  return html`<${DropZone} class="conversation" onFiles=${files => addFiles.current?.(files)} label=${`Drop to send to ${s.name}`}>
     <div class="thread" ref=${box} onScroll=${onScroll}>
       <div class="thread-inner">
         ${rows && rows.length >= 200 && more && html`<button class="btn ghost sm load-more" onClick=${older}>Load earlier messages</button>`}
@@ -148,12 +149,14 @@ function Conversation({ s }) {
       </div>
     </div>
     <div class="composer-wrap">
-      <${Composer} placeholder=${`Message ${s.name}`} autofocus=${true} onSend=${body => send(s.name, body)} />
+      <${Composer} placeholder=${`Message ${s.name}`} autofocus=${true} onSend=${(body, files) => send(s.name, body, files)}
+        registerDrop=${add => (addFiles.current = add)} />
       <div class="composer-hint">
-        <span>↵ send · ⇧↵ new line</span>
+        <span>↵ send · ⇧↵ new line · paste or drop files to attach</span>
         ${down && html`<span class="warn">${s.name} isn't connected; messages wait and are delivered when it is back</span>`}
       </div>
-    </div>`
+    </div>
+  </${DropZone}>`
 }
 
 const EVENT_TEXT = {

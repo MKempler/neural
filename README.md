@@ -44,6 +44,13 @@ terminal view in the UI and answer whatever it is waiting for.
 - **Timeline** lists every message, filterable by session. **Search** matches by keyword and by meaning.
 - **⌘K** (Ctrl+K) opens a palette to jump to a session, run an action or search history.
 - On a phone it uses a bottom tab bar, and can be added to the Home Screen as an app.
+- **Attachments**: the paperclip in any message box picks photos, videos or files (on iPhone: photo library,
+  camera or Files). On a laptop you can also paste or drag files in. Uploads start straight away and show
+  progress. Files are stored in `~/.local/share/neural/uploads` and the session gets their paths:
+  iPhone HEIC photos get a JPEG copy, very large photos a resized copy, and videos come with still frames
+  (via ffmpeg, `brew install ffmpeg`) because Claude can't watch video. Sessions can attach files to their
+  replies with the `files` parameter of `reply` and `send_message`. The size limit is `NEURAL_MAX_UPLOAD_MB`
+  (default 1024).
 
 The greeting name comes from `displayName` in `~/.local/share/neural/config.json`, or from your Tailscale
 identity. The UI is Preact with htm, loaded straight from `node_modules` with an import map, so there is no

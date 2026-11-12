@@ -3,6 +3,7 @@ import { sessions, messages, outbox, events, permissions, type Message } from '.
 import { searchAll } from './embed.ts'
 import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, activity } from './live.ts'
 import { notify } from './push.ts'
+import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, summary } from './files.ts'
 import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName } from './spawner.ts'
 
 const MAX_ATTEMPTS = 4
@@ -10,18 +11,23 @@ const MAX_ATTEMPTS = 4
 // ---------------------------------------------------------------------------------------------
 // Sending: every message is stored first, then delivered.
 
-export function sendMessage(m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null }): Message {
+export function sendMessage(m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null; attachments?: number[] }): Message {
   const body = m.body.trim()
-  if (!body) throw new Error('empty message')
+  const files = [...new Set((m.attachments ?? []).map(Number))]
+  if (!body && !files.length) throw new Error('empty message')
   if (m.to !== 'user' && !sessions.get(m.to)) throw new Error(`no session "${m.to}"`)
-  const stored = messages.insert({ ...m, body })
+  checkUnclaimed(files)
+  const stored = messages.insert({ from: m.from, to: m.to, body, source: m.source, in_reply_to: m.in_reply_to })
+  if (files.length) claimFor(stored.id, files)
   if (m.to !== 'user') {
     outbox.add(stored.id, m.to)
     flush(m.to)
   }
   const fresh = messages.get(stored.id)!
   broadcast({ type: 'message', message: fresh })
-  if (m.to === 'user' && m.from !== 'system') void notify({ title: m.from, body, session: m.from, tag: `msg-${m.from}` })
+  if (m.to === 'user' && m.from !== 'system') {
+    void notify({ title: m.from, body: body || summary(fresh.attachments as { kind: string }[]), session: m.from, tag: `msg-${m.from}` })
+  }
   return fresh
 }
 
@@ -38,12 +44,18 @@ export function flush(target: string) {
       continue
     }
     const from = msg.from_name === 'user' || msg.from_name === 'system' ? msg.from_name : `session:${msg.from_name}`
-    const ok = sendToChannel(target, { type: 'push', msg_id: String(msg.id), from, ts: msg.ts, body: msg.body })
+    const ok = sendToChannel(target, { type: 'push', msg_id: String(msg.id), from, ts: msg.ts, body: forClaude(msg.id, msg.body) })
     if (!ok) return
     outbox.markPushed(msg.id, 'channel')
     delivery(msg.id)
     beginTurnIfIdle(target, msg.from_name === 'user')
   }
+}
+
+/** The message text a session receives, with a note about any attached files. */
+function forClaude(messageId: number, body: string) {
+  const note = describeForClaude(forMessages([messageId]).get(messageId) ?? [])
+  return [body, note].filter(Boolean).join('\n\n')
 }
 
 function delivery(messageId: number) {
@@ -209,7 +221,7 @@ export async function retryStale() {
       outbox.markPushed(row.message_id, 'paste')
       turns.set(row.target, { startedAt: Date.now(), replied: false, forUser: msg.from_name === 'user' })
       events.add(row.target, 'fallback-paste', { message_id: row.message_id })
-      await mux.paste(row.target, `[Neural message from ${from}, msg_id=${msg.id}; answer with the neural reply tool]\n${msg.body}`)
+      await mux.paste(row.target, `[Neural message from ${from}, msg_id=${msg.id}; answer with the neural reply tool]\n${forClaude(msg.id, msg.body)}`)
       delivery(row.message_id)
       setStatus(row.target, 'working')
     } catch (e) {
@@ -255,10 +267,11 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
 
   switch (tool) {
     case 'reply':
-      return say(caller, 'user', a.text, 'reply', a.in_reply_to)
+      return say(caller, 'user', a.text, 'reply', a.in_reply_to, await importAll(a.files))
     case 'send_message':
       if (a.to === caller) throw new Error('a session cannot message itself')
-      return say(caller, String(a.to), a.text, a.to === 'user' ? 'reply' : 'send_message', a.in_reply_to)
+      if (a.to !== 'user' && !sessions.get(String(a.to))) throw new Error(`no session "${a.to}"`)
+      return say(caller, String(a.to), a.text, a.to === 'user' ? 'reply' : 'send_message', a.in_reply_to, await importAll(a.files))
     case 'list_sessions':
       return sessions.all().map(s => ({
         name: s.name, role: s.role, status: s.status, cwd: s.cwd, connected: Boolean(s.channel_connected), you: s.name === caller,
@@ -297,9 +310,19 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
   }
 }
 
-function say(from: string, to: string, text: unknown, source: string, inReplyTo: unknown) {
+/** Copy files a session attached into storage. */
+async function importAll(paths: unknown): Promise<number[]> {
+  if (paths === undefined || paths === null) return []
+  const list = Array.isArray(paths) ? paths : [paths]
+  if (list.length > 10) throw new Error('attach at most 10 files per message')
+  const ids: number[] = []
+  for (const p of list) ids.push((await importFile(String(p))).id)
+  return ids
+}
+
+function say(from: string, to: string, text: unknown, source: string, inReplyTo: unknown, attachments: number[] = []) {
   const replyTo = Number(inReplyTo) || null
-  const m = sendMessage({ from, to, body: String(text ?? ''), source, in_reply_to: replyTo })
+  const m = sendMessage({ from, to, body: String(text ?? ''), source, in_reply_to: replyTo, attachments })
   const turn = turns.get(from)
   if (turn && to === 'user') turn.replied = true
   // Answering a message is the strongest evidence it was delivered.

@@ -33,6 +33,7 @@ Object.assign(process.env, {
   NEURAL_EMBED_MS: '300',
   NEURAL_KEEP_AWAKE: 'off',
   NEURAL_DISPLAY_NAME: 'Ada',
+  NEURAL_MAX_UPLOAD_MB: '5',
   NEURAL_BACKUPS: 'off',
   NEURAL_ACK_TIMEOUT: '2',
   NEURAL_RETRY_MS: '300',
@@ -364,6 +365,93 @@ test('app routes load the app; only listed packages are served from node_modules
   assert.equal((await fetch(base + '/vendor/preact/package.json')).status, 404) // not a served file type
   assert.equal((await fetch(base + '/vendor/preact/../ws/index.js')).status, 404)
   assert.equal((await fetch(base + '/missing.js')).status, 404)
+})
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64')
+const upload = async (name: string, data: Buffer, type: string) => {
+  const res = await fetch(base + '/api/upload', { method: 'POST', headers: { 'content-type': type, 'x-file-name': encodeURIComponent(name) }, body: data })
+  return { status: res.status, body: await res.json() as any }
+}
+const have = (bin: string) => { try { execFileSync('/usr/bin/which', [bin], { stdio: 'ignore' }); return true } catch { return false } }
+
+test('a photo uploaded with a message reaches the session as a file it can open', async () => {
+  await idle('main')
+  const up = await upload('screen shot.png', PNG, 'image/png')
+  assert.equal(up.status, 200)
+  assert.equal(up.body.kind, 'image')
+  assert.deepEqual([up.body.width, up.body.height], [2, 2])
+  const sent = (await api('POST', '/api/messages', { to: 'main', body: 'what is this?', attachments: [up.body.id] })).body
+  assert.equal(sent.attachments.length, 1)
+  const reply = await messageWhere('echo with the file', m => m.from_name === 'main' && m.in_reply_to === sent.id)
+  assert.match(reply.body, /1 attached file/)
+  assert.match(reply.body, /Open images with the Read tool/)
+  assert.match(reply.body, /screen shot\.png \(photo, 2×2/)
+  const stored = reply.body.match(/\): (\/.+\.png)$/m)[1]
+  assert.ok(stored.startsWith(path.join(tmp, 'uploads')) && fs.existsSync(stored))
+  // The file is served to the app, including byte ranges for video seeking.
+  const file = await fetch(base + up.body.url)
+  assert.equal(file.headers.get('content-type'), 'image/png')
+  assert.equal(Buffer.from(await file.arrayBuffer()).length, PNG.length)
+  const part = await fetch(base + up.body.url, { headers: { range: 'bytes=0-3' } })
+  assert.equal(part.status, 206)
+  assert.equal((await part.arrayBuffer()).byteLength, 4)
+  // An upload belongs to one message only.
+  assert.equal((await api('POST', '/api/messages', { to: 'main', body: 'again', attachments: [up.body.id] })).status, 400)
+  // A message can be just a photo.
+  const only = await upload('b.png', PNG, 'image/png')
+  assert.equal((await api('POST', '/api/messages', { to: 'main', body: '', attachments: [only.body.id] })).status, 200)
+  await idle('main')
+})
+
+test('iPhone photos (HEIC) get a JPEG copy that Claude can read', { skip: !have('sips') && 'needs sips' }, async () => {
+  const png = path.join(tmp, 'in.png')
+  const heic = path.join(tmp, 'in.heic')
+  fs.writeFileSync(png, PNG)
+  execFileSync('sips', ['-s', 'format', 'heic', png, '--out', heic], { stdio: 'ignore' })
+  const up = await upload('IMG_0001.HEIC', fs.readFileSync(heic), 'image/heic')
+  assert.equal(up.status, 200)
+  assert.ok(up.body.view)
+  const view = await fetch(base + up.body.view)
+  assert.equal(view.headers.get('content-type'), 'image/jpeg')
+})
+
+test('a video arrives with still frames, and the app gets a poster', { skip: !have('ffmpeg') && 'needs ffmpeg' }, async () => {
+  await idle('main')
+  const mp4 = path.join(tmp, 'clip.mp4')
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=7:size=320x240:rate=10', '-pix_fmt', 'yuv420p', mp4])
+  const up = await upload('clip.mp4', fs.readFileSync(mp4), 'video/mp4')
+  assert.equal(up.status, 200)
+  assert.equal(up.body.kind, 'video')
+  assert.ok(up.body.duration > 6 && up.body.frames >= 3)
+  assert.equal((await fetch(base + up.body.poster)).headers.get('content-type'), 'image/jpeg')
+  const sent = (await api('POST', '/api/messages', { to: 'main', body: 'watch this', attachments: [up.body.id] })).body
+  const reply = await messageWhere('echo with stills', m => m.from_name === 'main' && m.in_reply_to === sent.id)
+  assert.match(reply.body, /clip\.mp4 \(video, 0:07, 320×240/)
+  assert.match(reply.body, /stills from the video, in order/)
+  await idle('main')
+})
+
+test('a session can attach a file to its reply', async () => {
+  await idle('main')
+  const shot = path.join(tmp, 'shot.png')
+  fs.writeFileSync(shot, PNG)
+  await say('main', `tool reply ${JSON.stringify({ text: 'here is the screenshot', files: [shot] })}`)
+  const m = await messageWhere('reply with a file', m => m.from_name === 'main' && m.body === 'here is the screenshot')
+  assert.equal(m.attachments.length, 1)
+  assert.equal(m.attachments[0].name, 'shot.png')
+  const bad = await messageWhere('refusal', m => m.from_name === 'main' && m.body.startsWith('ERROR') && m.body.includes('no such file')
+    , 1).catch(() => null)
+  assert.equal(bad, null)
+  await idle('main')
+  await say('main', `tool reply ${JSON.stringify({ text: 'x', files: ['/nope/missing.png'] })}`)
+  await messageWhere('missing file refused', m => m.from_name === 'main' && m.body.startsWith('ERROR') && m.body.includes('no such file'))
+  await idle('main')
+})
+
+test('uploads over the size limit are refused', async () => {
+  const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
+  assert.equal(res.status, 413)
+  assert.match(res.body.error, /too large/)
 })
 
 test('requests from other origins and without the secret are refused', async () => {

@@ -65,6 +65,13 @@ export type Message = {
   meta: string | null
   delivery?: string | null
   via?: string | null
+  attachments?: unknown[]
+}
+
+// The files module adds each message's attachments; set at startup so this module stays independent of it.
+let decorate = (rows: Message[]): Message[] => rows
+export function setMessageDecorator(fn: (rows: Message[]) => Message[]) {
+  decorate = fn
 }
 
 const q = <T>(sql: string) => {
@@ -102,8 +109,10 @@ export const messages = {
       .run(m.from, m.to, m.body, m.source, m.in_reply_to ?? null, m.meta ? JSON.stringify(m.meta) : null)
     return messages.get(Number(r.lastInsertRowid))!
   },
-  get: (id: number) =>
-    q<Message>(`SELECT ${MSG_COLS} FROM messages m LEFT JOIN outbox o ON o.message_id = m.id WHERE m.id = ?`).get(id),
+  get: (id: number) => {
+    const row = q<Message>(`SELECT ${MSG_COLS} FROM messages m LEFT JOIN outbox o ON o.message_id = m.id WHERE m.id = ?`).get(id)
+    return row ? decorate([row])[0] : undefined
+  },
   // Everything a session sent or received. `before`/`after` page by id.
   thread: (name: string, opts: { before?: number; after?: number; limit?: number } = {}) => {
     const rows = q<Message>(
@@ -111,25 +120,26 @@ export const messages = {
        WHERE (m.from_name = ?1 OR m.to_name = ?1) AND m.id < ?2 AND m.id > ?3
        ORDER BY m.id DESC LIMIT ?4`,
     ).all(name, opts.before ?? Number.MAX_SAFE_INTEGER, opts.after ?? 0, opts.limit ?? 100)
-    return rows.reverse()
+    return decorate(rows.reverse())
   },
   timeline: (opts: { before?: number; after?: number; limit?: number } = {}) => {
     const rows = q<Message>(
       `SELECT ${MSG_COLS} FROM messages m LEFT JOIN outbox o ON o.message_id = m.id
        WHERE m.id < ?1 AND m.id > ?2 ORDER BY m.id DESC LIMIT ?3`,
     ).all(opts.before ?? Number.MAX_SAFE_INTEGER, opts.after ?? 0, opts.limit ?? 100)
-    return rows.reverse()
+    return decorate(rows.reverse())
   },
 }
 
-export type Summary = { id: number; from_name: string; to_name: string; body: string; ts: string; source: string }
+export type Summary = { id: number; from_name: string; to_name: string; body: string; ts: string; source: string; files: number }
 
 export const reads = {
   /** Last message to or from a session, with the body shortened for previews. */
   last: (name: string) =>
     q<Summary>(
-      `SELECT id, from_name, to_name, substr(body, 1, 400) AS body, ts, source FROM messages
-       WHERE id = (SELECT max(id) FROM messages WHERE from_name = ?1 OR to_name = ?1)`,
+      `SELECT id, from_name, to_name, substr(body, 1, 400) AS body, ts, source,
+              (SELECT count(*) FROM attachments a WHERE a.message_id = messages.id) AS files
+       FROM messages WHERE id = (SELECT max(id) FROM messages WHERE from_name = ?1 OR to_name = ?1)`,
     ).get(name) ?? null,
   /** Replies from a session to the user that the user has not seen yet. */
   unread: (name: string) =>

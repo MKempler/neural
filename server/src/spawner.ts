@@ -38,6 +38,7 @@ function resolveClaude(): string {
 // Per-session config files: the hub's MCP server and hooks are passed on the command line,
 // so nothing is added to the user's global Claude Code settings.
 function writeRunFiles(s: Session) {
+  fs.mkdirSync(config.uploadsDir, { recursive: true, mode: 0o700 })
   const mcpFile = path.join(config.runDir, `${s.name}.mcp.json`)
   const settingsFile = path.join(config.runDir, `${s.name}.settings.json`)
   const mcp = {
@@ -75,6 +76,8 @@ export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
     '--permission-mode', 'auto',
     '--mcp-config', mcpFile,
     '--settings', settingsFile,
+    // Attached files live here; this lets the session open them without asking.
+    '--add-dir', config.uploadsDir,
     // Custom channels are not on the research-preview allowlist, so they load through the development flag.
     '--dangerously-load-development-channels', 'server:neural',
   ]

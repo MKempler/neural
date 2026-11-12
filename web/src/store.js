@@ -14,6 +14,7 @@ export const threads = signal(/** @type {Record<string, any[]>} */ ({})) // per 
 export const route = signal(parse(location))
 export const paletteOpen = signal(false)
 export const newSessionOpen = signal(false)
+export const lightbox = signal(/** @type {null | { items: any[], index: number }} */ (null))
 
 export const sessionList = computed(() => {
   const all = Object.values(sessions.value)
@@ -206,8 +207,8 @@ window.addEventListener('pagehide', () => socket?.readyState === 1 && socket.sen
 // ---------------------------------------------------------------------------------------------
 // Actions
 
-export async function send(to, body) {
-  const m = await api('POST', '/api/messages', { to, body })
+export async function send(to, body, attachments = []) {
+  const m = await api('POST', '/api/messages', { to, body, attachments })
   handle({ type: 'message', message: m })
   return m
 }

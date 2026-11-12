@@ -15,6 +15,7 @@ import {
 import { ingestAll } from './ingest.ts'
 import * as push from './push.ts'
 import * as terminal from './terminal.ts'
+import { receiveUpload, publicView, getAttachment, serveFile } from './files.ts'
 import { backupNow, listBackups } from './backup.ts'
 import { spawn } from 'node:child_process'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
@@ -155,8 +156,12 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
     }
     case 'POST messages': {
       const body = await readJson(req)
-      return sendMessage({ from: 'user', to: String(body.to ?? ''), body: String(body.body ?? ''), source: 'ui' })
+      const attachments = Array.isArray(body.attachments) ? body.attachments.map(Number).filter(Number.isInteger) : []
+      return sendMessage({ from: 'user', to: String(body.to ?? ''), body: String(body.body ?? ''), source: 'ui', attachments })
     }
+
+    case 'POST upload':
+      return publicView(await receiveUpload(req))
 
     case 'GET search':
       return searchAll(url.searchParams.get('q') ?? '', {
@@ -234,6 +239,14 @@ const server = http.createServer(async (req, res) => {
       return
     }
     checkBrowser(req)
+    // Attachments are streamed, not JSON: /api/files/<id>[/view|/poster|/download]
+    const file = /^\/api\/files\/(\d+)(?:\/(\w+))?$/.exec(url.pathname)
+    if (file && req.method === 'GET') {
+      const a = getAttachment(Number(file[1]))
+      if (!a) throw new HttpError(404, 'not found')
+      serveFile(req, res, a, file[2])
+      return
+    }
     if (url.pathname.startsWith('/api/')) {
       const result = await api(req, url)
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result ?? null))
@@ -242,7 +255,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'GET') throw new HttpError(405, 'method not allowed')
     serveStatic(url, res)
   } catch (e: any) {
-    const status = e instanceof HttpError ? e.status : 400
+    const status = e instanceof HttpError ? e.status : typeof e?.status === 'number' ? e.status : 400
     if (!res.headersSent) res.writeHead(status, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ error: e?.message ?? String(e) }))
   }

@@ -5,7 +5,7 @@ import { Icon } from '../icons.js'
 import { Dot, useAutosize } from './parts.js'
 import { Highlight } from '../views/Lists.js'
 import {
-  paletteOpen, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
+  lightbox, paletteOpen, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
 } from '../store.js'
 
 function Overlay({ onClose, children, label }) {
@@ -17,6 +17,45 @@ function Overlay({ onClose, children, label }) {
   return html`<div class="overlay" role="dialog" aria-modal="true" aria-label=${label} onPointerDown=${e => e.target === e.currentTarget && onClose()}>
     ${children}
   </div>`
+}
+
+// ---------------------------------------------------------------------------------------------
+// Full-size photo viewer: arrows or swipe between a message's photos, Esc or a tap outside to close.
+
+export function Lightbox() {
+  const lb = lightbox.value
+  const touch = useRef(null)
+  useEffect(() => {
+    if (!lb) return
+    const onKey = e => {
+      if (e.key === 'ArrowRight') step(1)
+      if (e.key === 'ArrowLeft') step(-1)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [lb])
+  if (!lb) return null
+  const close = () => (lightbox.value = null)
+  const step = d => {
+    const cur = lightbox.value
+    if (cur) lightbox.value = { ...cur, index: (cur.index + d + cur.items.length) % cur.items.length }
+  }
+  const a = lb.items[lb.index]
+  const many = lb.items.length > 1
+  return html`<${Overlay} onClose=${close} label="Photo">
+    <div class="lightbox" onPointerDown=${e => e.target === e.currentTarget && close()}
+        onTouchStart=${e => (touch.current = e.touches[0].clientX)}
+        onTouchEnd=${e => { const dx = e.changedTouches[0].clientX - (touch.current ?? 0); if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1) }}>
+      <img src=${a.view ?? a.url} alt=${a.name} />
+      <div class="lightbox-bar">
+        <span class="truncate">${a.name}${a.width ? ` · ${a.width}×${a.height}` : ''}${many ? ` · ${lb.index + 1} of ${lb.items.length}` : ''}</span>
+        ${many && html`<button class="btn sm" aria-label="Previous" onClick=${() => step(-1)}><${Icon} name="back" /></button>
+          <button class="btn sm" aria-label="Next" onClick=${() => step(1)}><${Icon} name="next" /></button>`}
+        <a class="btn sm" href=${`${a.url}/download`}><${Icon} name="download" />Original</a>
+        <button class="btn sm" aria-label="Close" onClick=${close}><${Icon} name="x" /></button>
+      </div>
+    </div>
+  </${Overlay}>`
 }
 
 // ---------------------------------------------------------------------------------------------

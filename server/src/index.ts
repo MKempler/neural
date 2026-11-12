@@ -18,6 +18,7 @@ import * as terminal from './terminal.ts'
 import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from './files.ts'
 import { backupNow, listBackups } from './backup.ts'
 import { spawn } from 'node:child_process'
+import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
 
 const WEB = path.join(ROOT, 'web')
@@ -99,6 +100,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         sessions: sessions.all().map(withSummary),
         permissions: permissions.open(),
         liveTerminal: terminal.available,
+        webVersion,
         health: {
           semantic: embeddingStatus(),
           lastBackup: listBackups().at(-1) ?? null,
@@ -426,6 +428,7 @@ export async function start() {
     }, 30_000)
   }
   for (const s of sessions.all()) flush(s.name)
+  watchForChanges(stop)
   return server
 }
 

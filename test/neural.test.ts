@@ -32,6 +32,7 @@ Object.assign(process.env, {
   NEURAL_EMBEDDINGS: models ? 'on' : 'off',
   NEURAL_EMBED_MS: '300',
   NEURAL_KEEP_AWAKE: 'off',
+  NEURAL_AUTO_RELOAD: 'off',
   NEURAL_DISPLAY_NAME: 'Ada',
   NEURAL_MAX_UPLOAD_MB: '5',
   NEURAL_BACKUPS: 'off',

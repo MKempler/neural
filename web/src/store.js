@@ -63,6 +63,7 @@ export const sessionPath = (name, tab) => `/s/${encodeURIComponent(name)}${tab &
 
 export async function loadState() {
   const [state, timeline] = await Promise.all([api('GET', '/api/state'), api('GET', '/api/messages?limit=200')])
+  noteVersion(state.webVersion)
   batch(() => {
     user.value = state.user ?? { name: '' }
     health.value = state.health ?? {}
@@ -173,6 +174,9 @@ function handle(ev) {
     case 'activity':
       patchSession(ev.session, { activity: ev.activity })
       break
+    case 'version':
+      noteVersion(ev.web)
+      break
     case 'permission':
       permissions.value = [...permissions.value.filter(p => p.id !== ev.request.id), ev.request]
       break
@@ -181,6 +185,34 @@ function handle(ev) {
       break
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Updates: when the web app changes on the server, reload, but only when it won't interrupt anything
+// (not while typing, with a sheet open, or uploading). Drafts and unsent messages survive a reload.
+
+let loadedVersion = null
+let reloadWanted = false
+function noteVersion(v) {
+  if (!v) return
+  if (loadedVersion === null) loadedVersion = v
+  else if (v !== loadedVersion) {
+    reloadWanted = true
+    tryReload()
+  }
+}
+function quiet() {
+  const el = document.activeElement
+  const typing = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable)
+  const overlay = paletteOpen.value || newSessionOpen.value || switcherOpen.value || modelSheet.value || lightbox.value
+  const uploading = document.querySelector('.tile.uploading, .tile.processing')
+  return !typing && !overlay && !uploading
+}
+function tryReload() {
+  if (!reloadWanted) return
+  if (document.hidden || quiet()) location.reload()
+  else setTimeout(tryReload, 2000)
+}
+document.addEventListener('visibilitychange', tryReload)
 
 // ---------------------------------------------------------------------------------------------
 // Reading and presence

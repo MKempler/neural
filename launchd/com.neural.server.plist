@@ -15,6 +15,7 @@
     <key>PATH</key><string>__NODE_DIR__:__TMUX_DIR__:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>NEURAL_CLAUDE_BIN</key><string>__CLAUDE__</string>
     <key>LANG</key><string>en_US.UTF-8</string>
+    <key>NEURAL_SERVICE</key><string>1</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

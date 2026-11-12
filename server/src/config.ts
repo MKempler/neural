@@ -62,6 +62,8 @@ export const config = {
   // Files attached to messages, and the largest single file accepted.
   uploadsDir: env('UPLOADS_DIR') ?? path.join(dataDir, 'uploads'),
   maxUploadBytes: Number(env('MAX_UPLOAD_MB') ?? 1024) * 2 ** 20,
+  // Restart on server code changes (when running as the login service) and reload open pages on web changes.
+  autoReload: env('AUTO_RELOAD') !== 'off',
   // Daily database snapshots.
   backups: env('BACKUPS') !== 'off',
   backupDir: env('BACKUP_DIR') ?? path.join(dataDir, 'backups'),

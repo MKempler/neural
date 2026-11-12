@@ -126,6 +126,17 @@ const commands: Record<string, () => Promise<void> | void> = {
     console.log(`Installed ${SERVICE_FILE}\nNeural now starts at login and restarts if it stops. Log: ~/Library/Logs/neural.log`)
   },
 
+  restart() {
+    // The login service restarts Neural when it exits; kickstart does exactly that. Sessions keep running.
+    const out = spawnSync('launchctl', ['kickstart', '-k', SERVICE_TARGET], { encoding: 'utf8' })
+    if (out.status !== 0) {
+      console.log('Neural is not installed as a login service. Stop it (Ctrl+C) and run: bin/neural start')
+      process.exitCode = 1
+      return
+    }
+    console.log('Restarted. Sessions keep running and reconnect in a few seconds.')
+  },
+
   'uninstall-service'() {
     run('launchctl', ['bootout', SERVICE_TARGET])
     fs.rmSync(SERVICE_FILE, { force: true })
@@ -147,6 +158,7 @@ const commands: Record<string, () => Promise<void> | void> = {
   neural backup            Write a database snapshot now
   neural install-service   Start the hub at login and keep it running (launchd)
   neural uninstall-service Remove the login service
+  neural restart        Restart the login service (only needed if automatic reloading is off)
 `)
   },
 }

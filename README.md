@@ -140,7 +140,14 @@ bin/neural status            # sessions and their state
 bin/neural attach main       # open a session's terminal; detach with Ctrl+B then D
 bin/neural install-service   # start Neural at login and keep it running
 bin/neural backup            # write a database snapshot now
+bin/neural restart           # restart the login service (rarely needed, see below)
 ```
+
+When Neural runs as the login service it picks up changes to its own code by itself. A server change is
+loaded in a test process first and, if it loads, Neural restarts within a couple of seconds; your sessions
+keep running and reconnect. A broken change is logged and the running version stays up. Open pages and the
+phone app reload when the web app changes, waiting until you're not typing. Set `NEURAL_AUTO_RELOAD=off` to
+turn this off.
 
 To show your name in the greeting, add `"displayName": "Your name"` to `~/.local/share/neural/config.json`.
 
@@ -195,6 +202,7 @@ Everything is optional. Environment variables override `~/.local/share/neural/co
 | `NEURAL_BACKUP_KEEP` | `7` | How many snapshots to keep |
 | `NEURAL_KEEP_AWAKE` | on | `off` lets the Mac sleep while sessions work |
 | `NEURAL_TRANSCRIPTS_DIR` | `~/.claude/projects` | Transcripts to archive |
+| `NEURAL_AUTO_RELOAD` | on | `off` stops restarting on code changes and reloading open pages |
 | `NEURAL_ACK_TIMEOUT` | `90` | Seconds before an unread push is typed into the terminal instead |
 
 Moving from an install made before the rename to Neural? Run `bin/neural migrate` once. It moves

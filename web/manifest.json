@@ -1,10 +1,16 @@
 {
+  "id": "/",
   "name": "Neural",
   "short_name": "Neural",
+  "description": "Command center for your Claude Code sessions",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#16181d",
-  "theme_color": "#16181d",
+  "display_override": [
+    "standalone"
+  ],
+  "background_color": "#0a0b0d",
+  "theme_color": "#0a0b0d",
   "icons": [
     {
       "src": "/icon-192.png",

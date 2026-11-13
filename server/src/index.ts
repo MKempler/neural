@@ -12,7 +12,7 @@ import {
   sendMessage, handleHook, handleTool, isCommand, runCommand, settleIfIdle, channelConnected, channelDisconnected,
   permissionRequested, decidePermission, retryStale, flush,
 } from './router.ts'
-import { ingestAll, seedModels } from './ingest.ts'
+import { ingestAll, seedModels, compressOldRaw } from './ingest.ts'
 import * as push from './push.ts'
 import * as terminal from './terminal.ts'
 import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from './files.ts'
@@ -455,6 +455,8 @@ export async function start() {
   }
   for (const s of sessions.all()) flush(s.name)
   seedModels()
+  // Archived transcript lines from before they were stored compressed; a no-op once converted.
+  setTimeout(() => compressOldRaw().catch(e => console.error('compressing archived transcript lines failed:', e)), 20_000).unref()
   watchForChanges(stop)
   return server
 }

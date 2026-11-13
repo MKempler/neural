@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { config } from './config.ts'
 import { db, sessions, outbox } from './db.ts'
 import { broadcast } from './live.ts'
@@ -23,6 +24,35 @@ const insert = db.prepare(
    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 )
 const messageTarget = db.prepare("SELECT target FROM outbox WHERE message_id = ? AND state = 'pushed'")
+
+// The original line is kept zlib-compressed (a BLOB): it is only a fallback, rarely read, and was most of the
+// database. Older rows stored it as plain text; rawLine reads either, and compressOldRaw converts them.
+const pack = (line: string) => zlib.deflateSync(line)
+export const rawLine = (raw: Uint8Array | string) => (typeof raw === 'string' ? raw : zlib.inflateSync(raw).toString('utf8'))
+
+const plainRaw = db.prepare("SELECT id, raw FROM transcript_entries WHERE id > ? AND typeof(raw) = 'text' ORDER BY id LIMIT 200")
+const setRaw = db.prepare('UPDATE transcript_entries SET raw = ? WHERE id = ?')
+
+/** Compress the original lines stored before compression, a batch at a time so the hub stays responsive. */
+export async function compressOldRaw(): Promise<number> {
+  let done = 0
+  let after = 0
+  for (;;) {
+    const rows = plainRaw.all(after) as { id: number; raw: string }[]
+    if (!rows.length) return done
+    db.exec('BEGIN')
+    try {
+      for (const r of rows) setRaw.run(pack(r.raw), r.id)
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+    done += rows.length
+    after = rows[rows.length - 1].id
+    await new Promise(r => setImmediate(r))
+  }
+}
 
 /** The model and effort a transcript line reveals: Claude's replies carry both, and /model and /effort record
  *  their result as "Set model to `Opus 5.5`" / "Set effort level to high". */
@@ -108,7 +138,7 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
       const found = extract(entry)
       if (!found) continue
       const name = nameFor(entry.sessionId, names)
-      const raw = line.length <= MAX_RAW ? line : JSON.stringify({ truncated: true, bytes: line.length })
+      const raw = pack(line.length <= MAX_RAW ? line : JSON.stringify({ truncated: true, bytes: line.length }))
       const r = insert.run(entry.sessionId, name, project, entry.uuid, entry.timestamp ?? null, found.role, found.text, raw)
       if (!r.changes) continue
       added++

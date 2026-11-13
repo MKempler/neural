@@ -222,6 +222,17 @@ test('transcripts are archived, searchable, and not duplicated', async () => {
   })
   assert.deepEqual(hits.map((h: any) => h.kind), ['transcript', 'transcript'])
   assert.ok(hits.every((h: any) => h.session === '-Users-someone-project'))
+  // The original line is kept, compressed; rows stored as plain text before that are converted.
+  const { db } = await import('../server/src/db.ts')
+  const { rawLine, compressOldRaw } = await import('../server/src/ingest.ts')
+  const stored = db.prepare("SELECT raw FROM transcript_entries WHERE uuid = 'u1'").get() as { raw: Uint8Array }
+  assert.ok(stored.raw instanceof Uint8Array)
+  assert.equal(JSON.parse(rawLine(stored.raw)).uuid, 'u1')
+  db.prepare("UPDATE transcript_entries SET raw = ? WHERE uuid = 'u1'").run(rawLine(stored.raw))
+  assert.ok(await compressOldRaw() >= 1)
+  const again = db.prepare("SELECT raw FROM transcript_entries WHERE uuid = 'u1'").get() as { raw: Uint8Array }
+  assert.equal(JSON.parse(rawLine(again.raw)).uuid, 'u1')
+  assert.equal(await compressOldRaw(), 0)
   // A half-written line is ignored until it is complete, and re-reading never duplicates entries.
   fs.appendFileSync(file, entry('u2', 'user', 'second kumquat question').slice(0, 40))
   await new Promise(r => setTimeout(r, 800))

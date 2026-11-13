@@ -210,6 +210,13 @@ which can run commands on your computer.
   The numbers appear after a session's first reply, and the limits only on a claude.ai plan.
 - **Transcripts are archived.** Neural copies every Claude Code transcript on the machine into its
   database, so they stay searchable after Claude Code's own cleanup.
+- **Secrets are kept out of the archive.** Tokens and keys in known formats (Anthropic, OpenAI, GitHub,
+  GitLab, Hugging Face, AWS, Google, Slack, Stripe, npm), private keys, JWTs, passwords in URLs and long
+  `password=` / `api_key:` style values are replaced with "[redacted …]" in stored messages, archived
+  transcripts, search and logs. A session you send a token to still receives it as written. What was stored
+  before is cleaned once at startup. Backups made earlier keep the old content until they age out, Claude
+  Code's own transcripts in `~/.claude/projects` are untouched, and an unusual secret can still get through,
+  so rotate anything you've pasted.
 
 ## Configuration
 
@@ -255,13 +262,6 @@ usage.
 
 Ideas that would make good contributions:
 
-- **Secrets are kept out of the archive.** Tokens and keys in known formats (Anthropic, OpenAI, GitHub,
-  GitLab, Hugging Face, AWS, Google, Slack, Stripe, npm), private keys, JWTs, passwords in URLs and long
-  `password=` / `api_key:` style values are replaced with "[redacted …]" in stored messages, archived
-  transcripts, search and logs. A session you send a token to still receives it as written. What was stored
-  before is cleaned once at startup. Backups made earlier keep the old content until they age out, Claude
-  Code's own transcripts in `~/.claude/projects` are untouched, and an unusual secret can still get through,
-  so rotate anything you've pasted.
 - Linux support: a systemd service, and a `sips` replacement for photo conversion.
 - Voice notes recorded in the app and transcribed locally.
 - A herdr or Zellij backend behind the `Mux` interface in `server/src/mux/`.

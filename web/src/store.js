@@ -269,7 +269,8 @@ export async function send(to, body, attachments = []) {
 // ---------------------------------------------------------------------------------------------
 // Sending without waiting: the message shows at once, and is retried or queued if the network is away.
 
-let nextPending = Date.now()
+// Unique across devices too, since the server uses it to recognise a retried send.
+const pendingKey = () => `p${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
 function savePending(list) {
   pendingSends.value = list
   local.set('neural.pending', list)
@@ -279,7 +280,8 @@ const patchPending = (key, fields) => savePending(pendingSends.value.map(p => (p
 async function deliver(p) {
   patchPending(p.key, { delivery: 'sending' })
   try {
-    const m = await api('POST', '/api/messages', { to: p.to_name, body: p.body, attachments: p.attachmentIds })
+    // The key makes retries safe: if an earlier attempt did reach the server, it answers with that message.
+    const m = await api('POST', '/api/messages', { to: p.to_name, body: p.body, attachments: p.attachmentIds, client_key: p.key })
     savePending(pendingSends.value.filter(x => x.key !== p.key))
     handle({ type: 'message', message: m })
   } catch (e) {
@@ -292,7 +294,7 @@ async function deliver(p) {
 /** Show the message straight away and send it in the background. */
 export function sendNow(to, body, attachments = [], previews = []) {
   const p = {
-    key: `p${nextPending++}`, id: null, from_name: 'user', to_name: to, body, ts: new Date().toISOString(),
+    key: pendingKey(), id: null, from_name: 'user', to_name: to, body, ts: new Date().toISOString(),
     source: 'ui', attachmentIds: attachments, attachments: previews, delivery: connected.value ? 'sending' : 'queued',
   }
   savePending([...pendingSends.value, p])

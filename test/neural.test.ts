@@ -118,6 +118,21 @@ test('a UI message is pushed through the channel, answered, and acknowledged', a
   await idle('main')
 })
 
+test('a send retried with the same key is stored and delivered once', async () => {
+  const send = () => api('POST', '/api/messages', { to: 'main', body: 'only once please', client_key: 'k-retry-1' })
+  const [a, b] = await Promise.all([send(), send()])
+  const c = await send()
+  assert.equal(a.status, 200)
+  assert.equal(a.body.id, b.body.id)
+  assert.equal(a.body.id, c.body.id)
+  const copies = (await get('/api/messages?limit=500')).filter((m: any) => m.body === 'only once please')
+  assert.equal(copies.length, 1)
+  await messageWhere('reply', m => m.from_name === 'main' && m.body === 'echo: only once please')
+  await idle('main')
+  const replies = (await get('/api/messages?limit=500')).filter((m: any) => m.body === 'echo: only once please')
+  assert.equal(replies.length, 1)
+})
+
 test('a request body with a character split across chunks arrives intact', async () => {
   const secret = fs.readFileSync(path.join(tmp, 'secret'), 'utf8').trim()
   const body = Buffer.from(JSON.stringify({ message: 'split 🎉 café' }))

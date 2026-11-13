@@ -188,9 +188,14 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       const attachments = Array.isArray(body.attachments) ? body.attachments.map(Number).filter(Number.isInteger) : []
       let text = String(body.body ?? '')
       const to = String(body.to ?? '')
-      if (to !== 'user' && !attachments.length && isCommand(text.trim())) return runCommand(to, text.trim())
+      // The app retries a send whose response it never got (a phone changing networks); answer a retry with
+      // the message already stored instead of storing and delivering it again.
+      const clientKey = typeof body.client_key === 'string' && body.client_key ? body.client_key.slice(0, 100) : null
+      const prior = clientKey ? messages.byClientKey(clientKey) : undefined
+      if (prior) return prior
+      if (to !== 'user' && !attachments.length && isCommand(text.trim())) return runCommand(to, text.trim(), clientKey)
       if (text.trim().startsWith('//')) text = text.trim().slice(1) // "//x" sends a literal "/x" to Claude
-      return sendMessage({ from: 'user', to, body: text, source: 'ui', attachments })
+      return sendMessage({ from: 'user', to, body: text, source: 'ui', attachments, client_key: clientKey })
     }
 
     case 'POST upload':

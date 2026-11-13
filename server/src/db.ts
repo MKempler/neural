@@ -106,10 +106,15 @@ export const sessions = {
 const MSG_COLS = 'm.*, o.state AS delivery, o.via AS via'
 
 export const messages = {
-  insert: (m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null; meta?: unknown }) => {
-    const r = q('INSERT INTO messages (from_name, to_name, body, source, in_reply_to, meta) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(m.from, m.to, m.body, m.source, m.in_reply_to ?? null, m.meta ? JSON.stringify(m.meta) : null)
+  insert: (m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null; meta?: unknown; client_key?: string | null }) => {
+    const r = q('INSERT INTO messages (from_name, to_name, body, source, in_reply_to, meta, client_key) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(m.from, m.to, m.body, m.source, m.in_reply_to ?? null, m.meta ? JSON.stringify(m.meta) : null, m.client_key ?? null)
     return messages.get(Number(r.lastInsertRowid))!
+  },
+  /** The message the web app already sent under this key, if any. */
+  byClientKey: (key: string) => {
+    const row = q<{ id: number }>('SELECT id FROM messages WHERE client_key = ?').get(key)
+    return row ? messages.get(row.id) : undefined
   },
   get: (id: number) => {
     const row = q<Message>(`SELECT ${MSG_COLS} FROM messages m LEFT JOIN outbox o ON o.message_id = m.id WHERE m.id = ?`).get(id)

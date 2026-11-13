@@ -11,13 +11,13 @@ const MAX_ATTEMPTS = 4
 // ---------------------------------------------------------------------------------------------
 // Sending: every message is stored first, then delivered.
 
-export function sendMessage(m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null; attachments?: number[] }): Message {
+export function sendMessage(m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null; attachments?: number[]; client_key?: string | null }): Message {
   const body = m.body.trim()
   const files = [...new Set((m.attachments ?? []).map(Number))]
   if (!body && !files.length) throw new Error('empty message')
   if (m.to !== 'user' && !sessions.get(m.to)) throw new Error(`no session "${m.to}"`)
   checkUnclaimed(files)
-  const stored = messages.insert({ from: m.from, to: m.to, body, source: m.source, in_reply_to: m.in_reply_to })
+  const stored = messages.insert({ from: m.from, to: m.to, body, source: m.source, in_reply_to: m.in_reply_to, client_key: m.client_key })
   if (files.length) claimFor(stored.id, files)
   if (m.to !== 'user') {
     outbox.add(stored.id, m.to)
@@ -170,12 +170,13 @@ export function isCommand(body: string) {
   return /^\/[a-z][\w:-]*(?:\s|$)/i.test(body) && !body.startsWith('//')
 }
 
-export async function runCommand(name: string, body: string): Promise<Message> {
+export async function runCommand(name: string, body: string, clientKey: string | null = null): Promise<Message> {
   const s = sessions.get(name)
   if (!s) throw new Error(`no session "${name}"`)
   if (!(await mux.alive(name))) throw new Error(`${name} isn't running. Start it first, then send the command.`)
   const command = body.trim().split('\n')[0]
-  const m = messages.insert({ from: 'user', to: name, body: command, source: 'command' })
+  // Inserted before typing: a duplicate retry fails on the unique key here instead of running the command twice.
+  const m = messages.insert({ from: 'user', to: name, body: command, source: 'command', client_key: clientKey })
   events.add(name, 'command', { command })
   await mux.type(name, command)
   await new Promise(r => setTimeout(r, 120))

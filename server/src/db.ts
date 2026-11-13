@@ -76,8 +76,11 @@ export function setMessageDecorator(fn: (rows: Message[]) => Message[]) {
   decorate = fn
 }
 
+// Prepared once per distinct SQL text and reused: these run on every hook, status change and page load.
+const statements = new Map<string, ReturnType<typeof db.prepare>>()
 const q = <T>(sql: string) => {
-  const st = db.prepare(sql)
+  let st = statements.get(sql)
+  if (!st) statements.set(sql, (st = db.prepare(sql)))
   return {
     all: (...a: any[]) => st.all(...a) as T[],
     get: (...a: any[]) => st.get(...a) as T | undefined,

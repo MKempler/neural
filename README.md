@@ -71,6 +71,10 @@ are trademarks of Anthropic.
 - **New session in two taps:** pick a folder from `~/Projects` (with its branch and the sessions already in
   it), start a new project there (a folder with git, and a private GitHub repository if you tick the box), or
   clone one of your GitHub repositories. `main` can do the same: "start a new project called recipes".
+- **Questions and plans:** when Claude asks a question (multiple choice, pick-any, or your own words) or
+  presents a plan for approval, it shows as a card in the conversation and under "Needs you", with a
+  notification. Your answer is typed into the dialog in the session's terminal, checking the screen before
+  each step; if the dialog has gone or looks different, the card says so and offers the terminal.
 - **Timeline** of every message, **Search** across all history, and a **⌘K** palette to jump anywhere.
 - **Slash commands from the chat:** a message starting with `/` (`/model sonnet`, `/effort max`, `/compact`)
   runs in the session's terminal, as if typed into Claude Code. Start with `//` to send it to Claude as text.
@@ -266,6 +270,7 @@ server/src/ingest.ts      transcript archive
 server/src/git.ts         a session's changes: branch, commits, diffs and turn recaps (read-only)
 server/src/usage.ts       usage limits and context, from each session's status line
 server/src/projects.ts    project folders: list, create (git, GitHub) and clone
+server/src/dialogs.ts     answering Claude Code's question and plan dialogs by keys
 server/src/embed.ts       meaning-based search (local model + sqlite-vec)
 server/src/files.ts       attachments: storage, photo conversion, video stills
 server/src/push.ts        Web Push notifications

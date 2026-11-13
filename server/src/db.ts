@@ -217,6 +217,29 @@ export const outbox = {
     q("UPDATE outbox SET state = 'failed', last_error = ? WHERE message_id = ?").run(error, id),
 }
 
+export type Question = {
+  id: number; session: string; tool_use_id: string | null; kind: 'question' | 'plan'; payload: any
+  state: 'open' | 'answered' | 'closed'; answer: any; created_at: string; closed_at: string | null
+}
+const question = (row: any): Question => ({ ...row, payload: JSON.parse(row.payload), answer: row.answer ? JSON.parse(row.answer) : null })
+
+/** Claude's questions and plans waiting for the user. */
+export const questions = {
+  add: (session: string, kind: string, toolUseId: string | null, payload: unknown) => {
+    const r = q('INSERT INTO questions (session, kind, tool_use_id, payload) VALUES (?, ?, ?, ?)').run(session, kind, toolUseId, JSON.stringify(payload ?? {}))
+    return questions.get(Number(r.lastInsertRowid))!
+  },
+  get: (id: number) => {
+    const row = q('SELECT * FROM questions WHERE id = ?').get(id)
+    return row ? question(row) : undefined
+  },
+  open: () => q("SELECT * FROM questions WHERE state = 'open' ORDER BY id").all().map(question),
+  openFor: (session: string) => q("SELECT * FROM questions WHERE session = ? AND state = 'open' ORDER BY id").all(session).map(question),
+  close: (id: number, state: 'answered' | 'closed', answer?: unknown) =>
+    q(`UPDATE questions SET state = ?, answer = ?, closed_at = ${NOW} WHERE id = ? AND state = 'open'`)
+      .run(state, answer === undefined ? null : JSON.stringify(answer), id).changes > 0,
+}
+
 /** Settings changed from the app, as JSON. */
 export const prefs = {
   get: <T>(key: string): T | null => {

@@ -104,6 +104,8 @@ client.fallbackNotificationHandler = async (n: any) => {
     await call('reply', { text: `status line: ${out}`, in_reply_to: msg_id })
     return hook('Stop', { last_assistant_message: 'Replied.' })
   }
+  if (body.startsWith('ask ')) return askDialog(JSON.parse(body.slice(4)).questions)
+  if (body.startsWith('plan ')) return planDialog(body.slice(5))
   if (body.startsWith('perm')) {
     return client.notification({
       method: 'notifications/claude/channel/permission_request',
@@ -132,6 +134,108 @@ client.fallbackNotificationHandler = async (n: any) => {
   await hook('Stop', { last_assistant_message: 'Replied.' })
 }
 
+// ---------------------------------------------------------------------------------------------
+// Claude Code's question and plan dialogs, drawn and driven by keys the way the real ones are (see dialogs.ts).
+
+let dialog: ((key: string) => void) | null = null
+const draw = (lines: string[]) => {
+  console.clear()
+  console.log(lines.join('\n'))
+}
+
+async function askDialog(qs: any[]) {
+  await hook('PreToolUse', { tool_name: 'AskUserQuestion', tool_input: { questions: qs }, tool_use_id: 'toolu_ask' })
+  const answers: string[] = []
+  let i = 0
+  let cursor = 0
+  let ticked = new Set<number>()
+  let typing: string | null = null
+  const finish = async () => {
+    dialog = null
+    console.clear()
+    await hook('PostToolUse', { tool_name: 'AskUserQuestion', tool_use_id: 'toolu_ask' })
+    await call('reply', { text: `answered: ${answers.join(' | ')}` })
+    await hook('Stop', { last_assistant_message: 'Answered.' })
+  }
+  const render = () => {
+    if (i === qs.length) return draw(['Review your answers', ...qs.map((q, j) => ` ● ${q.question}\n   → ${answers[j]}`), 'Ready to submit your answers?', '❯ 1. Submit answers', '  2. Cancel'])
+    const q = qs[i]
+    const n = q.options.length
+    const rows = q.options.map((o: any, k: number) => `${cursor === k ? '❯' : ' '} ${k + 1}. ${q.multiSelect ? `[${ticked.has(k) ? '✔' : ' '}] ` : ''}${o.label}\n     ${o.description ?? o.label}`)
+    rows.push(`${cursor === n ? '❯' : ' '} ${n + 1}. ${typing ?? 'Type something.'}`)
+    if (q.multiSelect) rows.push(`${cursor === n + 1 ? '❯' : ' '}    Submit`)
+    draw([qs.length > 1 ? `←  ${qs.map((x: any) => `☐ ${x.header}`).join('  ')}  ✔ Submit  →` : ` ☐ ${q.header}`, q.question, ...rows, '─'.repeat(40), `  ${n + (q.multiSelect ? 3 : 2)}. Chat about this`, 'Enter to select · ↑/↓ to navigate · Esc to cancel'])
+  }
+  const next = (answer: string) => {
+    answers.push(answer)
+    i++
+    cursor = 0
+    ticked = new Set()
+    typing = null
+    if (i === qs.length && qs.length === 1) return void finish()
+    render()
+  }
+  dialog = key => {
+    if (i === qs.length) {
+      if (key === '1') void finish()
+      return
+    }
+    const q = qs[i]
+    const n = q.options.length
+    if (typing !== null) {
+      if (key === '\r') return next(typing)
+      typing += key
+      return render()
+    }
+    if (isDown(key)) cursor = Math.min(cursor + 1, n + (q.multiSelect ? 1 : 0))
+    else if (isUp(key)) cursor = Math.max(cursor - 1, 0)
+    else if (/^[1-9]$/.test(key)) {
+      const k = Number(key) - 1
+      if (k === n) {
+        typing = ''
+        cursor = n
+      } else if (k < n) {
+        if (!q.multiSelect) return next(q.options[k].label)
+        if (ticked.has(k)) ticked.delete(k)
+        else ticked.add(k)
+      }
+    } else if (key === '\r') {
+      if (q.multiSelect && cursor === n + 1) return next([...ticked].sort().map(k => q.options[k].label).join(', '))
+      if (!q.multiSelect && cursor < n) return next(q.options[cursor].label)
+    }
+    render()
+  }
+  render()
+}
+
+async function planDialog(plan: string) {
+  await hook('PreToolUse', { tool_name: 'ExitPlanMode', tool_input: { plan }, tool_use_id: 'toolu_plan' })
+  let typing: string | null = null
+  const options = ['Yes, and use auto mode', 'Yes, manually approve edits', 'Tell Claude what to change']
+  const render = () => draw(['Ready to code?', "Here is Claude's plan:", ...plan.split('\n').map(l => ` ${l}`),
+    'Claude has written up a plan and is ready to execute. Would you like to proceed?',
+    ...options.map((o, k) => `${(typing !== null ? k === 2 : k === 0) ? '❯' : ' '} ${k + 1}. ${k === 2 && typing !== null ? typing || o : o}`)])
+  const done = async (text: string) => {
+    dialog = null
+    console.clear()
+    await hook('PostToolUse', { tool_name: 'ExitPlanMode', tool_use_id: 'toolu_plan' })
+    await call('reply', { text })
+    await hook('Stop', { last_assistant_message: 'Done.' })
+  }
+  dialog = key => {
+    if (typing !== null) {
+      if (key === '\r') return void done(`plan feedback: ${typing}`)
+      typing += key
+      return render()
+    }
+    if (key === '1') return void done('plan: approved, auto')
+    if (key === '2') return void done('plan: approved, manual')
+    if (key === '3') typing = ''
+    render()
+  }
+  render()
+}
+
 await client.connect(new StdioClientTransport({ command: mcpConfig.command, args: mcpConfig.args, env: { ...process.env, ...mcpConfig.env } }))
 await hook('SessionStart', { source: arg('--resume') ? 'resume' : 'startup' })
 
@@ -142,7 +246,8 @@ let typed = ''
 let pasting = false
 process.stdin.on('data', async d => {
   for (const k of keysOf(String(d))) {
-    if (k === '\x1b[200~') pasting = true
+    if (dialog) dialog(k)
+    else if (k === '\x1b[200~') pasting = true
     else if (k === '\x1b[201~') pasting = false
     else if (k === '\x03') process.exit(130)
     else if (k === '\x1b' && interruptible) {

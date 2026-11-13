@@ -1,5 +1,6 @@
 import { config } from './config.ts'
-import { sessions, messages, outbox, events, permissions, type Message } from './db.ts'
+import { sessions, messages, outbox, events, permissions, questions, type Message } from './db.ts'
+import { Driver, type PlanAnswer, type QuestionAnswer } from './dialogs.ts'
 import { searchAll } from './embed.ts'
 import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
 import { notify } from './push.ts'
@@ -104,15 +105,26 @@ export function handleHook(name: string, event: string, payload: any) {
       setStatus(name, 'working')
     }
     setDoing(name, describeTool(String(payload?.tool_name ?? ''), payload?.tool_input ?? {}))
+    // A question or plan for the user; any other tool means an earlier one was answered (in the terminal, say).
+    const tool = String(payload?.tool_name ?? '')
+    if (ASKS[tool]) questionAsked(name, ASKS[tool], payload)
+    else closeQuestions(name)
     return
   }
-  if (event === 'PostToolUse') return // heartbeat only
+  if (event === 'PostToolUse') {
+    // Heartbeat, and the end of a question: answered, here or in the terminal.
+    if (closeQuestions(name) && sessions.get(name)?.status === 'blocked') setStatus(name, 'working')
+    return
+  }
   events.add(name, `hook:${event}`, payload)
 
   if (payload?.session_id && (payload.session_id !== s.claude_session_id || payload.transcript_path !== s.transcript_path)) {
     sessions.update(name, { claude_session_id: payload.session_id, transcript_path: payload.transcript_path ?? null })
     sessionChanged(name)
   }
+
+  // A new prompt, the end of the turn or of the process: no dialog is open any more.
+  if (['UserPromptSubmit', 'Stop', 'StopFailure', 'SessionStart', 'SessionEnd'].includes(event)) closeQuestions(name)
 
   switch (event) {
     case 'SessionStart':
@@ -393,6 +405,8 @@ export function describeTool(tool: string, input: any): string {
     case 'WebSearch': return clip(`Searching the web for ${input?.query ?? ''}`)
     case 'Task': case 'Agent': return clip(input?.description ? String(input.description) : 'Running a subagent')
     case 'TodoWrite': return 'Planning'
+    case 'AskUserQuestion': return 'Asking you a question'
+    case 'ExitPlanMode': return 'Waiting for you to approve its plan'
     case 'ToolSearch': return 'Loading tools'
     default: return tool ? `Using ${tool}` : 'Working'
   }
@@ -518,6 +532,66 @@ export function decidePermission(id: number, behavior: 'allow' | 'deny') {
 
 function closePermission(id: number, verdict: string) {
   if (permissions.decide(id, verdict).changes) broadcast({ type: 'permission_closed', id, verdict })
+}
+
+// ---------------------------------------------------------------------------------------------
+// Questions (AskUserQuestion) and plan approvals (ExitPlanMode), answered from the app.
+
+const ASKS: Record<string, 'question' | 'plan'> = { AskUserQuestion: 'question', ExitPlanMode: 'plan' }
+const answering = new Set<string>()
+
+function questionAsked(name: string, kind: 'question' | 'plan', payload: any) {
+  closeQuestions(name)
+  const input = payload?.tool_input ?? {}
+  if (kind === 'question' && !(Array.isArray(input.questions) && input.questions.length)) return
+  const q = questions.add(name, kind, payload?.tool_use_id ?? null, kind === 'plan' ? { plan: String(input.plan ?? '') } : { questions: input.questions })
+  const qs: any[] = input.questions ?? []
+  const first = String(qs[0]?.question ?? '')
+  setStatus(name, 'blocked', kind === 'plan' ? 'Waiting for you to approve its plan' : `Asking: ${first}`)
+  broadcast({ type: 'question', question: q })
+  const planLine = String(input.plan ?? '').split('\n').map(l => l.replace(/^[#>*\-\s]+/, '').trim()).find(Boolean) ?? ''
+  void notify({
+    title: kind === 'plan' ? `${name} has a plan for you` : `${name} asks`,
+    body: kind === 'plan' ? planLine : first + (qs.length > 1 ? ` (and ${qs.length - 1} more)` : ''),
+    session: name, tag: `ask-${name}`,
+  })
+}
+
+/** Close a session's open questions (answered or gone); returns how many there were. */
+export function closeQuestions(name: string): number {
+  let n = 0
+  for (const q of questions.openFor(name)) {
+    if (!questions.close(q.id, 'closed')) continue
+    n++
+    broadcast({ type: 'question_closed', id: q.id })
+  }
+  return n
+}
+
+/** Answer a question or plan from the app, by typing into the dialog in the session's terminal. */
+export async function answerQuestion(id: number, body: any) {
+  const q = questions.get(id)
+  if (!q || q.state !== 'open') throw new Error('that has already been answered')
+  if (answering.has(q.session)) throw new Error('already answering this one')
+  answering.add(q.session)
+  try {
+    const driver = new Driver(mux, q.session)
+    if (q.kind === 'plan') {
+      const a: PlanAnswer = body?.approve ? { approve: true, manual: body.manual === true } : { approve: false, feedback: String(body?.feedback ?? '') }
+      await driver.answerPlan(a)
+    } else {
+      await driver.answerQuestions(q.payload.questions, body?.answers as QuestionAnswer[])
+    }
+  } catch (e: any) {
+    events.add(q.session, 'answer-failed', { id, error: e.message })
+    throw e
+  } finally {
+    answering.delete(q.session)
+  }
+  events.add(q.session, 'answered', { id, kind: q.kind })
+  if (questions.close(id, 'answered', body)) broadcast({ type: 'question_closed', id, answered: true })
+  if (sessions.get(q.session)?.status === 'blocked') setStatus(q.session, 'working')
+  return { ok: true }
 }
 
 // ---------------------------------------------------------------------------------------------

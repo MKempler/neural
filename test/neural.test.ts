@@ -811,6 +811,81 @@ test('new projects are created in the projects folder, from the app and by the o
   await idle('main')
 })
 
+test('dialogs: options are read from below the question, not from the plan or the prompt above', async () => {
+  const { dialogOptions, showsQuestion, showsPlan, checkAnswers } = await import('../server/src/dialogs.ts')
+  const ask = [
+    '❯ Use the AskUserQuestion tool: (1) "Which color?" options 1. Red 2. Green',
+    '←  ☐ Color  ☐ Size  ✔ Submit  →', 'Which color?', '❯ 1. Red', '     Red', '  2. Green', '     Green', '  3. Type something.',
+    '────', '  4. Chat about this', 'Enter to select · Tab/Arrow keys to navigate · Esc to cancel',
+  ].join('\n')
+  assert.ok(showsQuestion(ask, 'Which color?'))
+  assert.ok(!showsQuestion(ask, 'Which sizes?'))
+  assert.deepEqual(dialogOptions(ask, 'Which color?').map(o => [o.n, o.label, o.cursor]),
+    [['1', 'Red', true], ['2', 'Green', false], ['3', 'Type something.', false], ['4', 'Chat about this', false]])
+  const multi = 'Which sizes?\n❯ 1. [ ] Small\n  2. [✔] Large\n  3. [ ] Type something\n     Submit\nEsc to cancel'
+  assert.deepEqual(dialogOptions(multi, 'Which sizes?').map(o => o.label), ['Small', 'Large', 'Type something'])
+  const plan = [' Ready to code?', ' 1. Create hello.txt', ' 2. Check it', ' Would you like to proceed?', ' ❯ 1. Yes, and use auto mode', '   2. Yes, manually approve edits', '   3. Tell Claude what to change'].join('\n')
+  assert.ok(showsPlan(plan))
+  assert.deepEqual(dialogOptions(plan, /would you like to proceed\?/i).map(o => o.label), ['Yes, and use auto mode', 'Yes, manually approve edits', 'Tell Claude what to change'])
+  const qs = [{ question: 'A?', options: [{ label: 'x' }, { label: 'y' }] }, { question: 'B?', multiSelect: true, options: [{ label: 'p' }] }]
+  checkAnswers(qs, [{ choose: [1] }, { choose: [0] }])
+  checkAnswers(qs, [{ text: 'my own' }, { choose: [0] }])
+  assert.throws(() => checkAnswers(qs, [{ choose: [1] }]), /every question/)
+  assert.throws(() => checkAnswers(qs, [{ choose: [5] }, { choose: [0] }]), /no such option/)
+  assert.throws(() => checkAnswers(qs, [{ choose: [0], text: 'both' }, { choose: [0] }]), /pick one option/)
+  assert.throws(() => checkAnswers(qs, [{ choose: [0] }, { choose: [] }]), /at least one/)
+})
+
+test("Claude's questions and plans are answered from the app", async () => {
+  const open = () => until('an open question', async () => (await get('/api/state')).questions.find((q: any) => q.session === 'main'))
+  await idle('main')
+  const questions = [
+    { question: 'Which color?', header: 'Color', options: [{ label: 'Red', description: 'warm' }, { label: 'Green' }, { label: 'Blue' }] },
+    { question: 'Which sizes?', header: 'Size', multiSelect: true, options: [{ label: 'Small' }, { label: 'Large' }] },
+  ]
+  await say('main', `ask ${JSON.stringify({ questions })}`)
+  let q = await open()
+  assert.equal(q.kind, 'question')
+  assert.equal((await session('main')).status, 'blocked')
+  assert.ok(seen.some(e => e.type === 'question' && e.question.id === q.id))
+  assert.equal((await api('POST', `/api/questions/${q.id}`, { answers: [{ choose: [1] }] })).status, 400) // one answer short
+  assert.deepEqual((await api('POST', `/api/questions/${q.id}`, { answers: [{ choose: [1] }, { choose: [0, 1] }] })).body, { ok: true })
+  await messageWhere('the answers', (m: any) => m.from_name === 'main' && m.body === 'answered: Green | Small, Large')
+  assert.ok(seen.some(e => e.type === 'question_closed' && e.id === q.id))
+  assert.equal((await api('POST', `/api/questions/${q.id}`, { answers: [{ choose: [1] }, { choose: [0] }] })).status, 400) // already answered
+  await idle('main')
+
+  // A typed answer.
+  await say('main', `ask ${JSON.stringify({ questions: [{ question: 'Pick a fruit?', header: 'Fruit', options: [{ label: 'Apple' }, { label: 'Pear' }] }] })}`)
+  q = await open()
+  await api('POST', `/api/questions/${q.id}`, { answers: [{ text: 'Mango, ripe' }] })
+  await messageWhere('the typed answer', (m: any) => m.from_name === 'main' && m.body === 'answered: Mango, ripe')
+  await idle('main')
+
+  // A plan whose own numbered steps must not be mistaken for the dialog's options.
+  await say('main', 'plan 1. Create hi.txt\n2. Check it')
+  q = await open()
+  assert.equal(q.kind, 'plan')
+  assert.match(q.payload.plan, /Create hi\.txt/)
+  await api('POST', `/api/questions/${q.id}`, { approve: false, feedback: 'Name it hello.txt' })
+  await messageWhere('the feedback', (m: any) => m.from_name === 'main' && m.body === 'plan feedback: Name it hello.txt')
+  await idle('main')
+  await say('main', 'plan 1. Create hello.txt')
+  q = await open()
+  await api('POST', `/api/questions/${q.id}`, { approve: true })
+  await messageWhere('the approval', (m: any) => m.from_name === 'main' && m.body === 'plan: approved, auto')
+  await idle('main')
+
+  // Answered in the terminal instead: the card goes away, and a late answer from the app is refused.
+  await say('main', `ask ${JSON.stringify({ questions: [{ question: 'Terminal or app?', header: 'Where', options: [{ label: 'Terminal' }, { label: 'App' }] }] })}`)
+  q = await open()
+  await (await import('../server/src/spawner.ts')).mux.sendKeys('main', ['1'])
+  await messageWhere('answered in the terminal', (m: any) => m.from_name === 'main' && m.body === 'answered: Terminal')
+  await until('closed', async () => !(await get('/api/state')).questions.length)
+  assert.equal((await api('POST', `/api/questions/${q.id}`, { answers: [{ choose: [1] }] })).status, 400)
+  await idle('main')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

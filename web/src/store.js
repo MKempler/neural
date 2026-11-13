@@ -12,6 +12,8 @@ export const usage = signal(null)
 /** The short answers offered above the message box, shared by every device. */
 export const quickReplies = signal([])
 export const quickRepliesOpen = signal(false)
+/** Claude's open questions and plans waiting for approval. */
+export const questions = signal(/** @type {any[]} */ ([]))
 export const sessions = signal(/** @type {Record<string, any>} */ ({}))
 export const permissions = signal(/** @type {any[]} */ ([]))
 export const recent = signal(/** @type {any[]} */ ([])) // newest last, across all sessions
@@ -75,6 +77,7 @@ export async function loadState() {
     liveTerminal.value = Boolean(state.liveTerminal)
     usage.value = state.usage ?? null
     quickReplies.value = state.quickReplies ?? []
+    questions.value = state.questions ?? []
     sessions.value = Object.fromEntries(state.sessions.map(s => [s.name, s]))
     permissions.value = state.permissions
     recent.value = timeline
@@ -180,6 +183,12 @@ function handle(ev) {
       break
     case 'activity':
       patchSession(ev.session, { activity: ev.activity })
+      break
+    case 'question':
+      questions.value = [...questions.value.filter(q => q.id !== ev.question.id), ev.question]
+      break
+    case 'question_closed':
+      questions.value = questions.value.filter(q => q.id !== ev.id)
       break
     case 'prefs':
       if (ev.quickReplies) quickReplies.value = ev.quickReplies
@@ -335,6 +344,7 @@ export const drafts = {
 
 export const sessionAction = (name, action) => api('POST', `/api/sessions/${encodeURIComponent(name)}/${action}`)
 export const removeSession = name => api('DELETE', `/api/sessions/${encodeURIComponent(name)}`)
+export const answer = (id, body) => api('POST', `/api/questions/${id}`, body)
 export async function saveQuickReplies(list) {
   quickReplies.value = (await api('PUT', '/api/prefs/quickReplies', { replies: list })).quickReplies
 }

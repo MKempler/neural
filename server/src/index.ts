@@ -5,12 +5,12 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { ROOT, config } from './config.ts'
-import { sessions, messages, permissions, events, reads, prefs, frequentReplies } from './db.ts'
+import { sessions, messages, permissions, events, reads, prefs, frequentReplies, questions } from './db.ts'
 import { searchAll, embedPending, embeddingStatus } from './embed.ts'
 import { channels, uiClients, broadcast, bus, doing } from './live.ts'
 import {
   sendMessage, handleHook, handleTool, isCommand, runCommand, settleIfIdle, channelConnected, channelDisconnected,
-  permissionRequested, decidePermission, retryStale, flush,
+  permissionRequested, decidePermission, retryStale, flush, answerQuestion,
 } from './router.ts'
 import { ingestAll, seedModels, compressOldRaw } from './ingest.ts'
 import * as push from './push.ts'
@@ -127,6 +127,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         liveTerminal: terminal.available,
         webVersion,
         usage: usage.account(),
+        questions: questions.open(),
         quickReplies: prefs.get<string[]>('quickReplies') ?? DEFAULT_QUICK_REPLIES,
         health: {
           semantic: embeddingStatus(),
@@ -185,6 +186,12 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       return { screen: await mux.capture(name, num(url.searchParams.get('history')) ?? 0).catch(() => '') }
     case 'GET events':
       return events.recent(name)
+    case 'POST questions': {
+      // Answer Claude's question or plan: typed into the dialog in the session's terminal.
+      const id = Number(name)
+      if (!Number.isInteger(id)) throw new HttpError(400, 'question id required')
+      return answerQuestion(id, await readJson(req))
+    }
     case 'GET projects':
       // Folders in the projects folder for the New session sheet; /github lists repositories to clone.
       if (name === 'github') return { repos: await projects.repos() }

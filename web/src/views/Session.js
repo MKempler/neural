@@ -9,9 +9,10 @@ import { Terminal } from '../components/Terminal.js'
 import { Changes, recapText } from '../components/Changes.js'
 import { ContextChip, LimitWarning } from '../components/Usage.js'
 import { QuickReplies, awaitingReply } from '../components/QuickReplies.js'
+import { QuestionCard, live } from '../components/Questions.js'
 import {
   sessions, threads, permissions, route, navigate, sessionPath, loadThread, loadOlder,
-  sessionAction, removeSession, readLatest, pendingSends, sendNow, interrupt, switcherOpen, modelSheet,
+  sessionAction, removeSession, readLatest, pendingSends, sendNow, interrupt, switcherOpen, modelSheet, questions,
 } from '../store.js'
 
 const TABS = [['chat', 'Conversation', 'chat'], ['terminal', 'Terminal', 'terminal'], ['changes', 'Changes', 'branch'], ['activity', 'Activity', 'activity']]
@@ -46,7 +47,8 @@ export function Session() {
   const splitting = split && wide && tab === 'chat'
   const down = ['stopped', 'exited'].includes(s.status)
   const perms = permissions.value.filter(p => p.session === name)
-  const showNotice = s.status_detail && (['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && perms.length === 0))
+  const asking = live(questions.value, name).length > 0
+  const showNotice = s.status_detail && (['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && perms.length === 0 && !asking))
 
   const menu = [
     phone && tab !== 'changes' && { label: 'Changes', icon: 'branch', run: () => setTab('changes') },
@@ -218,6 +220,7 @@ function Conversation({ s }) {
         ${rows === undefined ? html`<div class="empty">Loading…</div>`
           : items.length === 0 ? html`<div class="empty">No messages yet. Say something to <span class="mono">${s.name}</span>.</div>`
           : items}
+        ${live(questions.value, s.name).map(q => html`<${QuestionCard} q=${q} key=${`q${q.id}`} />`)}
         <${ActivityLine} s=${s} />
       </div>
     </div>

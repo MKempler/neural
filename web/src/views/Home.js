@@ -6,8 +6,9 @@ import { Composer, Dot, PermissionCard, StatusPill, Link } from '../components/p
 import { NotifySetup } from '../push.js'
 import { UsageMeter, ContextChip } from '../components/Usage.js'
 import { CardReplies } from '../components/QuickReplies.js'
+import { QuestionCard, live } from '../components/Questions.js'
 import {
-  user, sessions, sessionList, permissions, recent, health, orchestrator, newSessionOpen,
+  user, sessions, sessionList, permissions, recent, health, orchestrator, newSessionOpen, questions,
   navigate, send, sessionPath, sessionAction, totalUnread,
 } from '../store.js'
 
@@ -15,9 +16,11 @@ export function Home() {
   const list = sessionList.value
   const name = user.value.name
   const perms = permissions.value
-  const troubled = list.filter(s => ['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && !perms.some(p => p.session === s.name)))
+  const asks = live(questions.value)
+  const troubled = list.filter(s => ['attention', 'exited', 'limited'].includes(s.status)
+    || (s.status === 'blocked' && !perms.some(p => p.session === s.name) && !asks.some(q => q.session === s.name)))
   const unread = list.filter(s => s.unread > 0 && (s.last_reply ?? s.last_message))
-  const needs = perms.length + troubled.length + unread.length
+  const needs = perms.length + asks.length + troubled.length + unread.length
   const main = orchestrator.value
 
   return html`<div class="scroll"><div class="page">
@@ -35,6 +38,7 @@ export function Home() {
       <div class="section-head"><span class="label" id="needs">Needs you</span><span class="count">${needs}</span><span class="rule"></span></div>
       <div class="attention">
         ${perms.map(p => html`<${PermissionCard} p=${p} key=${`p${p.id}`} />`)}
+        ${asks.map(q => html`<${QuestionCard} q=${q} showSession=${true} key=${`q${q.id}`} />`)}
         ${troubled.map(s => html`<${Trouble} s=${s} key=${`t${s.name}`} />`)}
         ${unread.map(s => html`<div class="alert info clickable compact" key=${`u${s.name}`} onClick=${() => navigate(sessionPath(s.name))}>
           <${Dot} status="working" />

@@ -166,6 +166,10 @@ Neural only listens on your computer. The easiest safe way to reach it from a ph
 To keep other people on your Tailscale network out, list the logins allowed to use Neural in
 `~/.local/share/neural/config.json`: `{"allowedLogins": ["you@example.com"]}`.
 
+Neural answers only to `localhost` and Tailscale (`*.ts.net`) names, so a web page can't reach it by pointing
+its own domain at your computer. If you put another host name in front of it, add it as
+`{"allowedHosts": ["neural.example.com"]}`.
+
 **Do not expose Neural to the public internet.** Anyone who can reach it can type into your Claude sessions,
 which can run commands on your computer.
 

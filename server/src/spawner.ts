@@ -3,7 +3,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { ROOT, config, hubUrl } from './config.ts'
 import { sessions, events, permissions, outbox, type Session } from './db.ts'
-import { channels, setStatus, sessionChanged, bus, turns } from './live.ts'
+import { channels, setStatus, sessionChanged, bus, turns, activity } from './live.ts'
 import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
 
@@ -11,7 +11,7 @@ export const mux: Mux = new Tmux(config.tmuxSocket)
 
 // PostToolUse is only a heartbeat: it tells the hub a turn is still making progress.
 // PreToolUse feeds the live activity line; PostToolUse is a heartbeat that says a turn is still making progress.
-const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'SessionEnd', 'PreCompact', 'PostModelSwitch']
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'SessionEnd', 'PreCompact', 'PostModelSwitch', 'StopFailure']
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const RESERVED = new Set(['user', 'system', 'all', 'hub', 'neural'])
 const MAX_RESTARTS = 5
@@ -255,6 +255,15 @@ export async function reconcile() {
     if (alive) {
       // Ten minutes up since the last (re)start: it's healthy again, so later crashes get the full retry budget.
       if (s.restarts && s.channel_connected && Date.now() - Date.parse(s.updated_at) > 10 * 60_000) markHealthy(s.name)
+      // Past the usage limit's reset time: ready again.
+      if (s.status === 'limited') {
+        const at = (await import('./router.ts')).resetTime(s.status_detail ?? '', Date.parse(s.updated_at))
+        if (at && Date.now() > at) setStatus(s.name, 'idle')
+      }
+      // "Working" but silent for a while: check the terminal in case the turn ended without telling us.
+      if (s.status === 'working' && Date.now() - Math.max(activity.get(s.name) ?? 0, Date.parse(s.updated_at)) > 90_000) {
+        await import('./router.ts').then(r => r.settleIfIdle(s.name)).catch(() => {})
+      }
       continue
     }
     if (s.status === 'starting' && Date.now() - Date.parse(s.updated_at) < 10_000) continue

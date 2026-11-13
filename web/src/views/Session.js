@@ -43,7 +43,7 @@ export function Session() {
   const splitting = split && wide && tab === 'chat'
   const down = ['stopped', 'exited'].includes(s.status)
   const perms = permissions.value.filter(p => p.session === name)
-  const showNotice = s.status_detail && (['attention', 'exited'].includes(s.status) || (s.status === 'blocked' && perms.length === 0))
+  const showNotice = s.status_detail && (['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && perms.length === 0))
 
   const menu = [
     phone && tab !== 'activity' && { label: 'Activity log', icon: 'activity', run: () => setTab('activity') },

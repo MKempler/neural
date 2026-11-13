@@ -179,6 +179,9 @@ which can run commands on your computer.
   escalates shows up as an Allow/Deny card.
 - **Usage adds up.** Every session uses your Claude plan or API key independently, so start only what you
   need.
+- **Usage limits are handled.** When a session hits your plan's limit, it shows **usage limit** with the reset
+  time, you get a message and a notification, and messages you send wait instead of being retried against the
+  limit. The status clears when the limit resets.
 - **Transcripts are archived.** Neural copies every Claude Code transcript on the machine into its
   database, so they stay searchable after Claude Code's own cleanup.
 

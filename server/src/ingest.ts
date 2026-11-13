@@ -3,7 +3,7 @@ import path from 'node:path'
 import { config } from './config.ts'
 import { db, sessions, outbox } from './db.ts'
 import { broadcast } from './live.ts'
-import { noteModel } from './router.ts'
+import { noteModel, turnFailed } from './router.ts'
 
 // Archives Claude Code transcripts into the hub database so they stay searchable after Claude Code's own
 // cleanup removes them. Every session on this machine is covered, not only the ones the hub started.
@@ -26,9 +26,16 @@ const messageTarget = db.prepare("SELECT target FROM outbox WHERE message_id = ?
 
 /** The model and effort a transcript line reveals: Claude's replies carry both, and /model and /effort record
  *  their result as "Set model to `Opus 5.5`" / "Set effort level to high". */
+function errorText(entry: any): string {
+  const c = entry?.message?.content
+  const text = typeof c === 'string' ? c : Array.isArray(c) ? c.map((b: any) => b?.text ?? '').join(' ') : ''
+  return text.replace(/\s+/g, ' ').trim() || 'The request failed'
+}
+
 export function modelInfo(entry: any): { model?: string; effort?: string } | null {
   if (entry?.isSidechain) return null
   if (entry?.type === 'assistant') {
+    if (entry.isApiErrorMessage || entry.message?.model === '<synthetic>') return null
     const effort = typeof entry.effort === 'string' ? entry.effort : entry.effort?.level
     return entry.message?.model ? { model: entry.message.model, effort } : null
   }
@@ -74,6 +81,7 @@ function nameFor(claudeSessionId: string, cache: Map<string, string | null>) {
 function ingestLines(lines: string[], project: string, names: Map<string, string | null>) {
   let added = 0
   const latest = new Map<string, { model?: string; effort?: string }>()
+  const failures = new Map<string, { text: string; kind: string }>()
   db.exec('BEGIN')
   try {
     for (const line of lines) {
@@ -86,6 +94,12 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
         continue
       }
       if ((entry.type !== 'user' && entry.type !== 'assistant') || !entry.uuid || !entry.sessionId) continue
+      // A recent API error reply (usage limit, overload) means that turn is over.
+      if (entry.type === 'assistant' && (entry.isApiErrorMessage || entry.message?.model === '<synthetic>') && !entry.isSidechain) {
+        const owner = nameFor(entry.sessionId, names)
+        const recent = Date.now() - Date.parse(entry.timestamp ?? '') < 15 * 60_000
+        if (owner && recent) failures.set(owner, { text: errorText(entry), kind: String(entry.error ?? '') })
+      }
       const info = modelInfo(entry)
       if (info) {
         const owner = nameFor(entry.sessionId, names)
@@ -116,6 +130,7 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
   }
   // Only lines appended since the last pass are read, so this reflects the newest turns.
   for (const [name, v] of latest) noteModel(name, v.model, v.effort)
+  for (const [name, f] of failures) turnFailed(name, f.text, f.kind)
   return added
 }
 
@@ -200,19 +215,27 @@ export function seedModels() {
       // Newest first: the first model and the first effort found are the current ones.
       let model: string | undefined
       let effort: string | undefined
+      let newestError: { text: string; kind: string } | null = null
+      let sawReply = false
       for (const line of buf.toString('utf8').split('\n').reverse()) {
         if (!line.includes('"type":"assistant"') && !line.includes('local-command-stdout')) continue
-        let info: ReturnType<typeof modelInfo> = null
+        let entry: any
         try {
-          info = modelInfo(JSON.parse(line))
+          entry = JSON.parse(line)
         } catch {
           continue // a partial first line from the cut
         }
+        if (!sawReply && entry.type === 'assistant' && !entry.isSidechain) {
+          sawReply = true
+          if (entry.isApiErrorMessage || entry.message?.model === '<synthetic>') newestError = { text: errorText(entry), kind: String(entry.error ?? '') }
+        }
+        const info = modelInfo(entry)
         model ??= info?.model
         effort ??= info?.effort
-        if (model && effort) break
+        if (model && effort && sawReply) break
       }
       noteModel(s.name, model, effort)
+      if (s.status === 'working' && newestError) turnFailed(s.name, newestError.text, newestError.kind)
     } catch {
       // transcript gone; the next reply reports it
     }

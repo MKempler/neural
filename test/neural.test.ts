@@ -537,6 +537,43 @@ test('each session shows the model and effort it is using', async () => {
   assert.equal((await session('main')).effort, 'max')
 })
 
+test('a usage limit is shown, not left spinning as "working"', async () => {
+  const { resetTime, handleHook } = await import('../server/src/router.ts')
+  const base = new Date(2026, 10, 12, 18, 55).getTime()
+  assert.equal(new Date(resetTime('resets 8:20pm (America/New_York)', base)!).getHours(), 20)
+  assert.equal(new Date(resetTime('resets 1am', base)!).getDate(), 13) // already past today: tomorrow
+  assert.equal(resetTime('no time here'), null)
+
+  await idle('main')
+  await say('main', 'slow and long')
+  // Wait for the stand-in's own tool report first; a real session reports nothing after its turn has failed.
+  await until('working', async () => (await session('main')).activity?.text === 'Running the test suite')
+  // Claude Code ends the turn with StopFailure and an error reply in the transcript; either reports it once.
+  handleHook('main', 'StopFailure', { error: { type: 'rate_limit', message: "You've hit your 5-hour limit · resets 8:20pm" } })
+  const id = (await session('main')).claude_session_id
+  const dir = path.join(tmp, 'transcripts', 'main-project')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.appendFileSync(path.join(dir, `${id}.jsonl`), JSON.stringify({
+    type: 'assistant', uuid: 'err1', sessionId: id, timestamp: new Date().toISOString(), isApiErrorMessage: true, error: 'rate_limit',
+    message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: "You've hit your 5-hour limit · resets 8:20pm" }] },
+  }) + '\n')
+  const s = await until('limited', async () => {
+    const x = await session('main')
+    return x.status === 'limited' ? x : null
+  })
+  assert.equal(s.activity, null)
+  assert.notEqual(s.model, '<synthetic>')
+  await new Promise(r => setTimeout(r, 800)) // let the transcript copy be read too
+  const notes = (await get('/api/messages?session=main')).filter((m: any) => m.source === 'error')
+  assert.equal(notes.length, 1)
+  assert.match(notes[0].body, /Usage limit reached/)
+  // A tool call after the reset means it is working again.
+  handleHook('main', 'PreToolUse', { tool_name: 'Read', tool_input: { file_path: '/x/y.ts' } })
+  assert.equal((await session('main')).status, 'working')
+  await api('POST', '/api/sessions/main/interrupt')
+  await idle('main')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

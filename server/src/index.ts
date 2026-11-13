@@ -9,7 +9,7 @@ import { sessions, messages, permissions, events, reads } from './db.ts'
 import { searchAll, embedPending, embeddingStatus } from './embed.ts'
 import { channels, uiClients, broadcast, bus, doing } from './live.ts'
 import {
-  sendMessage, handleHook, handleTool, isCommand, runCommand, channelConnected, channelDisconnected,
+  sendMessage, handleHook, handleTool, isCommand, runCommand, settleIfIdle, channelConnected, channelDisconnected,
   permissionRequested, decidePermission, retryStale, flush,
 } from './router.ts'
 import { ingestAll, seedModels } from './ingest.ts'
@@ -128,6 +128,8 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
           // Esc stops Claude Code's current turn, the same as pressing it in the terminal.
           if (!sessions.get(name)) throw new HttpError(404, 'unknown session')
           await mux.sendKeys(name, ['Escape'])
+          // If no turn was running, Esc changes nothing and no hook reports back; settle the status ourselves.
+          setTimeout(() => settleIfIdle(name).catch(() => {}), 4000)
           return { ok: true }
         }
         if (action === 'keys') {

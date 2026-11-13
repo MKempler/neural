@@ -69,7 +69,7 @@ export function Message({ m, context, continued, onQuote }) {
     </div>`
   }
 
-  return html`<div class=${`msg ${mine ? 'mine' : ''} ${relay ? 'relay' : ''} ${continued ? 'continued' : ''} ${open ? 'open' : ''} ${pending ? 'pending' : ''}`}
+  return html`<div class=${`msg ${m.source === 'error' ? 'error' : ''} ${mine ? 'mine' : ''} ${relay ? 'relay' : ''} ${continued ? 'continued' : ''} ${open ? 'open' : ''} ${pending ? 'pending' : ''}`}
       onClick=${toggle} ref=${self}>
     <div class="gutter">
       <span class="who">${relay ? '' : who}</span>

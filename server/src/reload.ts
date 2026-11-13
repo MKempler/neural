@@ -60,7 +60,10 @@ export const underService = process.env.XPC_SERVICE_NAME === 'com.neural.server'
 
 export function watchForChanges(stop: () => Promise<unknown>) {
   if (!config.autoReload) return
+  const startedAt = Date.now()
   const onServerChange = debounce(async () => {
+    // macOS replays recent file events to a new watcher; only act on files changed since this process started.
+    if (Math.max(...SERVER_DIRS.map(d => Number(latestMtime(path.join(ROOT, d))))) < startedAt) return
     if (!underService) {
       console.log('neural: server code changed; restart Neural to use it (bin/neural restart)')
       return

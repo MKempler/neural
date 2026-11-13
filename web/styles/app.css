@@ -103,7 +103,7 @@ kbd {
 .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
 .dot.working { background: var(--accent); animation: pulse 1.6s var(--ease) infinite; }
 .dot.idle { background: var(--text-3); }
-.dot.blocked, .dot.attention { background: var(--warn); }
+.dot.blocked, .dot.attention, .dot.limited { background: var(--warn); }
 .dot.starting { background: none; box-shadow: inset 0 0 0 1.5px var(--warn); }
 .dot.exited { background: var(--bad); }
 .dot.stopped { background: none; box-shadow: inset 0 0 0 1.5px var(--text-3); }
@@ -117,7 +117,7 @@ kbd {
   font: 500 var(--fs-xs)/1 var(--mono); color: var(--text-2); white-space: nowrap;
 }
 .pill.working { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
-.pill.blocked, .pill.attention, .pill.starting { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.pill.blocked, .pill.attention, .pill.starting, .pill.limited { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
 .pill.exited { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 
 .tag {
@@ -712,3 +712,7 @@ button.result:hover { background: var(--surface-2); }
 }
 
 .plus-menu.down { bottom: auto; top: calc(100% + 10px); }
+
+/* A turn that ended with an error (usage limit, API failure) */
+.msg.error .content { padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: var(--r-card); background: var(--warn-tint); }
+.msg.error .md { font-size: var(--fs-md); }

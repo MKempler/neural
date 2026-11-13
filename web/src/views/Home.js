@@ -13,7 +13,7 @@ export function Home() {
   const list = sessionList.value
   const name = user.value.name
   const perms = permissions.value
-  const troubled = list.filter(s => ['attention', 'exited'].includes(s.status) || (s.status === 'blocked' && !perms.some(p => p.session === s.name)))
+  const troubled = list.filter(s => ['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && !perms.some(p => p.session === s.name)))
   const unread = list.filter(s => s.unread > 0 && (s.last_reply ?? s.last_message))
   const needs = perms.length + troubled.length + unread.length
   const main = orchestrator.value
@@ -81,13 +81,14 @@ function Trouble({ s }) {
     await sessionAction(s.name, 'restart').catch(err => alert(err.message))
     setBusy(false)
   }
-  const label = s.status === 'exited' ? 'stopped unexpectedly' : s.status === 'blocked' ? 'is waiting in its terminal' : 'needs attention'
+  const label = s.status === 'exited' ? 'stopped unexpectedly' : s.status === 'blocked' ? 'is waiting in its terminal'
+    : s.status === 'limited' ? 'hit the usage limit' : 'needs attention'
   return html`<div class=${`alert ${s.status === 'exited' ? 'bad' : ''}`}>
     <${Dot} status=${s.status} />
     <div class="truncate"><${Link} href=${sessionPath(s.name)} class="who">${s.name}</${Link}> <span class="what">${label}</span></div>
     <div class="actions">
       <button class="btn sm" onClick=${() => navigate(sessionPath(s.name, 'terminal'))}><${Icon} name="terminal" />Terminal</button>
-      <button class="btn sm" disabled=${busy} onClick=${restart}><${Icon} name="restart" />${s.status === 'exited' ? 'Start' : 'Restart'}</button>
+      ${s.status !== 'limited' && html`<button class="btn sm" disabled=${busy} onClick=${restart}><${Icon} name="restart" />${s.status === 'exited' ? 'Start' : 'Restart'}</button>`}
     </div>
     ${s.status_detail && html`<pre class="detail">${s.status_detail}</pre>`}
   </div>`

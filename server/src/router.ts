@@ -91,6 +91,11 @@ export function handleHook(name: string, event: string, payload: any) {
   activity.set(name, Date.now())
   noteModel(name, event === 'PostModelSwitch' ? payload?.to_model : payload?.model, payload?.effort?.level ?? payload?.effort)
   if (event === 'PreToolUse') {
+    // Tool calls after a pause (the usage limit reset, or work started at the terminal) mean it's working again.
+    if (['idle', 'limited', 'attention'].includes(s.status)) {
+      if (!turns.has(name)) turns.set(name, { startedAt: Date.now(), replied: false, forUser: true })
+      setStatus(name, 'working')
+    }
     setDoing(name, describeTool(String(payload?.tool_name ?? ''), payload?.tool_input ?? {}))
     return
   }
@@ -129,6 +134,10 @@ export function handleHook(name: string, event: string, payload: any) {
     case 'Stop':
       setDoing(name, null)
       onTurnEnd(name, payload)
+      break
+    case 'StopFailure':
+      turnFailed(name, String(payload?.error?.message ?? payload?.error_message ?? payload?.message ?? payload?.error ?? 'The turn ended with an error'),
+        String(payload?.error?.type ?? payload?.error_type ?? payload?.reason ?? ''))
       break
     case 'SessionEnd':
       // The user quit Claude in its terminal: treat that as a deliberate stop, not a crash to recover from.
@@ -177,6 +186,75 @@ export async function runCommand(name: string, body: string): Promise<Message> {
   const fresh = messages.get(m.id)!
   broadcast({ type: 'message', message: fresh })
   return fresh
+}
+
+// ---------------------------------------------------------------------------------------------
+// Failed turns: the usage limit, or an API error. Claude Code ends these with StopFailure (not Stop) and
+// writes the error into the transcript, so either one can report it; the second report is ignored.
+
+const lastFailure = new Map<string, { text: string; at: number }>()
+
+/** "… resets 8:20pm …" → that time today (or tomorrow, if already past when the limit was hit). */
+export function resetTime(text: string, from = Date.now()): number | null {
+  const m = /resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(text)
+  if (!m) return null
+  let h = Number(m[1]) % 12
+  if (m[3].toLowerCase() === 'pm') h += 12
+  const d = new Date(from)
+  d.setHours(h, Number(m[2] ?? 0), 0, 0)
+  if (d.getTime() < from - 60_000) d.setDate(d.getDate() + 1)
+  return d.getTime()
+}
+
+export async function turnFailed(name: string, text: string, kind = '') {
+  const s = sessions.get(name)
+  if (!s) return
+  const prev = lastFailure.get(name)
+  if (prev && prev.text === text && Date.now() - prev.at < 10 * 60_000) return
+  lastFailure.set(name, { text, at: Date.now() })
+  setDoing(name, null)
+  turns.delete(name)
+  const limit = /rate.?limit|usage.?limit/i.test(kind) || /hit your .*limit|usage limit|limit reached/i.test(text)
+  setStatus(name, limit ? 'limited' : 'attention', text)
+  events.add(name, limit ? 'usage-limit' : 'turn-failed', { text, kind })
+  // Claude Code may offer to continue by itself at the reset; say so only if its terminal shows that.
+  let screen = ''
+  try {
+    screen = await mux.capture(name)
+  } catch {
+    // no terminal to read
+  }
+  const auto = /continuing automatically/i.test(screen) && !/continue cancelled/i.test(screen)
+  const after = limit
+    ? auto
+      ? 'Claude Code carries on by itself when it resets.'
+      : 'Send a message after it resets and the session picks up where it left off.'
+    : 'Send a message to try again.'
+  sendMessage({
+    from: name, to: 'user', source: 'error',
+    body: `**${limit ? 'Usage limit reached.' : 'This turn stopped with an error.'}** ${text}\n\n${after}`,
+  })
+}
+
+// ---------------------------------------------------------------------------------------------
+// Is a turn really running? Claude Code's footer says "esc to interrupt" only while it is. Used when a
+// session has been silent for a while, and after Stop, so a status can't stay stuck on "working".
+
+export async function settleIfIdle(name: string) {
+  const s = sessions.get(name)
+  if (!s || s.status !== 'working') return
+  let screen = ''
+  try {
+    screen = await mux.capture(name)
+  } catch {
+    return
+  }
+  // Only decide when the full footer is on screen (a phone-width terminal view can cut it off).
+  if (!/shift\+tab to cycle/i.test(screen) || /esc to interrupt/i.test(screen)) return
+  events.add(name, 'settled', { reason: 'no turn running' })
+  setDoing(name, null)
+  turns.delete(name)
+  setStatus(name, 'idle')
 }
 
 const base = (p: unknown) => String(p ?? '').split('/').filter(Boolean).pop() ?? ''
@@ -280,7 +358,8 @@ export function channelDisconnected(name: string) {
 export async function retryStale() {
   for (const row of outbox.stale(config.ackTimeoutSec)) {
     const s = sessions.get(row.target)
-    if (!s || ['stopped', 'exited', 'starting'].includes(s.status)) continue // delivered when it is back
+    // Down, starting, or at its usage limit: hold the message; it goes through when the session can take it.
+    if (!s || ['stopped', 'exited', 'starting', 'limited'].includes(s.status)) continue
     // The clock starts when the message could first have been read: when it was pushed, or when the turn
     // it is waiting behind ended. Any hook or tool call since then means the session is busy, not deaf.
     const basis = Math.max(Date.parse(row.pushed_at ?? ''), turns.get(row.target)?.startedAt ?? 0)

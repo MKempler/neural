@@ -25,7 +25,7 @@ export async function api(method, url, body) {
 
 export const STATUS = {
   working: 'working', idle: 'idle', blocked: 'needs approval', attention: 'needs attention',
-  starting: 'starting', exited: 'exited', stopped: 'stopped',
+  starting: 'starting', exited: 'exited', stopped: 'stopped', limited: 'usage limit',
 }
 
 export function ago(ts, now = Date.now()) {

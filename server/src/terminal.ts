@@ -85,7 +85,12 @@ export function attach(ws: WebSocket, name: string, cols: number, rows: number) 
     } catch {
       // already gone
     }
-    setTimeout(() => execFile('tmux', ['-L', config.tmuxSocket, 'resize-window', '-t', `=${name}:`, '-x', '200', '-y', '50'], () => {}), 300)
+    // Back to the startup size only once no browser is watching: with a phone and a laptop both attached, the
+    // one leaving must not squeeze or stretch the other's view.
+    // Checked and resized in one tmux command, so a viewer attaching meanwhile can't be resized from under it.
+    // (Session names are limited to [a-z0-9_-], so the name is safe inside the command string.)
+    setTimeout(() => execFile('tmux', ['-L', config.tmuxSocket, 'if-shell', '-F', '-t', `=${name}:`, '#{==:#{session_attached},0}',
+      `resize-window -t =${name}: -x 200 -y 50`], () => {}), 300)
   }
   ws.on('close', end)
   ws.on('error', end)

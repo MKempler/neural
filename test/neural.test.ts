@@ -303,6 +303,20 @@ test('the live terminal shows the session and accepts typing', async () => {
   // Closing the browser's terminal detaches it; the session keeps running.
   await new Promise(r => setTimeout(r, 300))
   assert.equal((await session('main')).status, 'idle')
+  // Two viewers: the one leaving doesn't reset the size under the one still watching; the last one does.
+  const width = () => execFileSync('tmux', ['-L', SOCKET, 'display', '-p', '-t', '=main:', '#{window_width}'], { encoding: 'utf8' }).trim()
+  const open = (cols: number) => new Promise<WebSocket>(r => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/term?name=main&cols=${cols}&rows=30`)
+    ws.once('open', () => r(ws))
+  })
+  const laptop = await open(120)
+  const phone = await open(60)
+  await until('phone size', () => width() === '60')
+  phone.close()
+  await new Promise(r => setTimeout(r, 800))
+  assert.notEqual(width(), '200')
+  laptop.close()
+  await until('startup size', () => width() === '200')
   const refused = new WebSocket(`ws://127.0.0.1:${port}/term?name=nope`)
   await assert.rejects(new Promise((resolve, reject) => (refused.on('open', resolve), refused.on('error', reject))))
 })

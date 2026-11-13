@@ -768,6 +768,20 @@ test('a stuck "working" status is settled by what Claude Code reports, busy or i
   await idle('main')
 })
 
+test('quick replies are shared by every device, and suggested from what the user often sends', async () => {
+  assert.deepEqual((await get('/api/state')).quickReplies.slice(0, 2), ['Continue', 'Go ahead'])
+  const saved = await api('PUT', '/api/prefs/quickReplies', { replies: [' Ship it ', 'Ship it', '', 'Keep going'] })
+  assert.deepEqual(saved.body.quickReplies, ['Ship it', 'Keep going'])
+  assert.deepEqual((await get('/api/state')).quickReplies, ['Ship it', 'Keep going'])
+  assert.ok(seen.some(e => e.type === 'prefs' && e.quickReplies?.[0] === 'Ship it'))
+  assert.equal((await api('PUT', '/api/prefs/quickReplies', { replies: 'nope' })).status, 400)
+  assert.equal((await api('PUT', '/api/prefs/somethingElse', { replies: [] })).status, 404)
+  const { messages } = await import('../server/src/db.ts')
+  for (const body of ['go ahead', 'Go ahead.', 'go ahead!']) messages.insert({ from: 'user', to: 'main', body, source: 'ui' })
+  const { replies } = await get('/api/prefs/suggestions')
+  assert.ok(replies.some((r: any) => /^go ahead/i.test(r.body) && r.n >= 3))
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

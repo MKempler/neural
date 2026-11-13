@@ -65,6 +65,9 @@ are trademarks of Anthropic.
   - a composer with + for camera, photos and files, and Send that turns into Stop while the session works
   - a live line showing what the session is doing ("Running the full test suite · 0:33")
   - drafts kept per session, and messages that queue while you're offline
+  - quick replies above the message box when a session is waiting for you ("Continue", "Go ahead", "Push
+    when tests pass"): tap to send, hold to edit first. Edit the list with the pencil; it suggests what you
+    often send, and it's the same on every device. Home's unread cards have them too.
 - **Timeline** of every message, **Search** across all history, and a **⌘K** palette to jump anywhere.
 - **Slash commands from the chat:** a message starting with `/` (`/model sonnet`, `/effort max`, `/compact`)
   runs in the session's terminal, as if typed into Claude Code. Start with `//` to send it to Claude as text.

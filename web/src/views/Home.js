@@ -5,6 +5,7 @@ import { Icon } from '../icons.js'
 import { Composer, Dot, PermissionCard, StatusPill, Link } from '../components/parts.js'
 import { NotifySetup } from '../push.js'
 import { UsageMeter, ContextChip } from '../components/Usage.js'
+import { CardReplies } from '../components/QuickReplies.js'
 import {
   user, sessions, sessionList, permissions, recent, health, orchestrator, newSessionOpen,
   navigate, send, sessionPath, sessionAction, totalUnread,
@@ -39,6 +40,7 @@ export function Home() {
           <${Dot} status="working" />
           <div class="truncate"><span class="who">${s.name}</span> <span class="what">${excerpt(s.last_reply ?? s.last_message)}</span></div>
           <div class="actions"><span class="badge">${s.unread}</span></div>
+          ${s.status === 'idle' && s.last_message?.from_name === s.name && html`<${CardReplies} s=${s} />`}
         </div>`)}
       </div>
     </section>`}

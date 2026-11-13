@@ -8,6 +8,7 @@ import { Message, ActivityLine } from '../components/Message.js'
 import { Terminal } from '../components/Terminal.js'
 import { Changes, recapText } from '../components/Changes.js'
 import { ContextChip, LimitWarning } from '../components/Usage.js'
+import { QuickReplies, awaitingReply } from '../components/QuickReplies.js'
 import {
   sessions, threads, permissions, route, navigate, sessionPath, loadThread, loadOlder,
   sessionAction, removeSession, readLatest, pendingSends, sendNow, interrupt, switcherOpen, modelSheet,
@@ -223,6 +224,7 @@ function Conversation({ s }) {
     ${unseen > 0 && html`<button class="jump" onClick=${() => { stick.current = true; setUnseen(0); toBottom(true) }}>
       <${Icon} name="down" size=${14} />${unseen} new</button>`}
     <div class="composer-wrap">
+      ${awaitingReply(s, rows, pending) && html`<${QuickReplies} name=${s.name} onHold=${t => composer.current?.insert(t)} />`}
       <${LimitWarning} />
       <${Composer} placeholder=${`Message ${s.name}`} autofocus=${true} draftKey=${s.name} onSend=${send}
         onReady=${apiRef => (composer.current = apiRef)}

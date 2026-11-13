@@ -346,6 +346,27 @@ kbd {
 
 /* Composer */
 .composer-wrap { padding: 10px 24px 16px; }
+/* Quick replies: one tap to answer */
+.quick-replies {
+  max-width: var(--content); margin: 0 auto 8px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+}
+.quick-replies::-webkit-scrollbar { display: none; }
+.chip.quick-chip { flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--sans); font-size: var(--fs-sm);
+  color: var(--text); background: var(--surface); -webkit-touch-callout: none; user-select: none; touch-action: manipulation; }
+.quick-chip:active { background: var(--surface-3); }
+.icon-chip { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; padding: 0; }
+.quick-replies.compact { margin: 6px 0 0; flex-wrap: wrap; overflow: visible; }
+.quick-replies.compact .chip.quick-chip { height: 26px; font-size: var(--fs-xs); }
+.card-replies { grid-column: 2 / -1; }
+.quick-list { display: grid; gap: 2px; }
+.quick-item { display: flex; align-items: center; gap: 2px; padding: 4px 4px 4px 10px; border-radius: var(--r); background: var(--bg); }
+.quick-item .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
+.quick-add { display: flex; gap: 8px; align-items: stretch; }
+.quick-add .btn { height: auto; }
+.quick-add .input { flex: 1; min-width: 0; }
+.quick-sheet .chips { margin: 4px 0 0; }
+
 .limit-warn {
   max-width: var(--content); margin: 0 auto 8px; padding: 6px 10px; border-radius: 6px;
   background: var(--warn-tint); color: var(--warn); font: var(--fs-xs)/1.4 var(--mono);
@@ -810,3 +831,4 @@ button.result:hover { background: var(--surface-2); }
   border: 1px solid var(--line); border-radius: 999px; font: 11px/1.4 var(--mono); color: var(--text-2); background: var(--surface-2); }
 .recap:hover { color: var(--text); border-color: var(--line-strong); }
 .recap:focus-visible { outline: 2px solid var(--accent); }
+.quick-sheet .hint { margin: 0; line-height: 1.6; }

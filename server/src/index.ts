@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { ROOT, config } from './config.ts'
-import { sessions, messages, permissions, events, reads } from './db.ts'
+import { sessions, messages, permissions, events, reads, prefs, frequentReplies } from './db.ts'
 import { searchAll, embedPending, embeddingStatus } from './embed.ts'
 import { channels, uiClients, broadcast, bus, doing } from './live.ts'
 import {
@@ -106,6 +106,9 @@ async function readJson(req: http.IncomingMessage): Promise<any> {
   }
 }
 
+/** What the quick replies are until the user edits them: the short answers they gave most often. */
+const DEFAULT_QUICK_REPLIES = ['Continue', 'Go ahead', 'Push when tests pass', "What's left?", 'Explain what you did']
+
 const num = (v: string | null) => (v === null || v === '' ? undefined : Number(v))
 
 async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
@@ -123,6 +126,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         liveTerminal: terminal.available,
         webVersion,
         usage: usage.account(),
+        quickReplies: prefs.get<string[]>('quickReplies') ?? DEFAULT_QUICK_REPLIES,
         health: {
           semantic: embeddingStatus(),
           lastBackup: listBackups().at(-1) ?? null,
@@ -180,6 +184,20 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       return { screen: await mux.capture(name, num(url.searchParams.get('history')) ?? 0).catch(() => '') }
     case 'GET events':
       return events.recent(name)
+    case 'GET prefs':
+      if (name === 'suggestions') return { replies: frequentReplies() }
+      throw new HttpError(404, 'not found')
+    case 'PUT prefs': {
+      // The quick replies shown above the message box, the same on every device.
+      if (name !== 'quickReplies') throw new HttpError(404, 'not found')
+      const { replies } = await readJson(req)
+      if (!Array.isArray(replies) || replies.length > 12) throw new HttpError(400, 'replies must be a list of up to 12')
+      const clean = [...new Set(replies.map((r: unknown) => String(r ?? '').trim()).filter(Boolean))]
+      if (clean.some(r => r.length > 300)) throw new HttpError(400, 'each reply can be up to 300 characters')
+      prefs.set('quickReplies', clean)
+      broadcast({ type: 'prefs', quickReplies: clean })
+      return { quickReplies: clean }
+    }
     case 'GET changes': {
       // The session's repository: branch, push state, uncommitted files and commits; or one diff.
       const s = sessions.get(name)

@@ -217,6 +217,29 @@ export const outbox = {
     q("UPDATE outbox SET state = 'failed', last_error = ? WHERE message_id = ?").run(error, id),
 }
 
+/** Settings changed from the app, as JSON. */
+export const prefs = {
+  get: <T>(key: string): T | null => {
+    const row = q<{ value: string }>('SELECT value FROM prefs WHERE key = ?').get(key)
+    return row ? JSON.parse(row.value) : null
+  },
+  set: (key: string, value: unknown) =>
+    q(`INSERT INTO prefs (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = ${NOW}`)
+      .run(key, JSON.stringify(value)),
+}
+
+/** Short messages the user sends again and again, from the app and typed in terminals: candidates for quick replies. */
+export const frequentReplies = (limit = 10): { body: string; n: number }[] =>
+  q<{ body: string; n: number }>(
+    `WITH said(body) AS (
+       SELECT body FROM messages WHERE from_name = 'user' AND source = 'ui'
+       UNION ALL SELECT text FROM transcript_entries WHERE role = 'user'
+     )
+     SELECT MAX(body) AS body, COUNT(*) AS n FROM said
+     WHERE length(body) BETWEEN 2 AND 60 AND instr(body, char(10)) = 0 AND substr(body, 1, 1) NOT IN ('/', '<', '[')
+     GROUP BY lower(trim(body, ' .!')) HAVING n >= 2 ORDER BY n DESC LIMIT ?`,
+  ).all(limit)
+
 /** The status line's latest readings, as JSON: per session, and the account's under ''. */
 export const usage = {
   get: <T>(name: string): T | null => {

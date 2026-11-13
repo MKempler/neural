@@ -40,6 +40,7 @@ Object.assign(process.env, {
   NEURAL_ACK_TIMEOUT: '2',
   NEURAL_RETRY_MS: '300',
   NEURAL_RECONCILE_MS: '300',
+  NEURAL_RESUME_GRACE_MS: '300',
   NEURAL_RESTART_BACKOFF_MS: '300',
 })
 
@@ -644,6 +645,26 @@ test('a usage limit is shown, not left spinning as "working"', async () => {
   handleHook('main', 'PreToolUse', { tool_name: 'Read', tool_input: { file_path: '/x/y.ts' } })
   assert.equal((await session('main')).status, 'working')
   await api('POST', '/api/sessions/main/interrupt')
+  await idle('main')
+})
+
+test('a session cut off by a usage limit carries on by itself once the limit resets', async () => {
+  const { turnFailed, limitReset } = await import('../server/src/router.ts')
+  await idle('main')
+  await turnFailed('main', "You've hit your 5-hour limit · resets 9:40pm", 'rate_limit')
+  assert.equal((await session('main')).status, 'limited')
+  const note = (await get('/api/messages?session=main')).filter((m: any) => m.source === 'error').at(-1)
+  assert.match(note.body, /Neural tells the session to carry on/)
+  // The reset passes (reconcile notices it from the status text; here it is triggered directly).
+  limitReset('main', Date.now() - 1000)
+  assert.equal((await session('main')).status, 'idle')
+  const nudge = await messageWhere('the nudge', (m: any) => m.from_name === 'system' && m.to_name === 'main' && /usage limit has reset/.test(m.body))
+  await messageWhere('the carried-on reply', (m: any) => m.from_name === 'main' && m.to_name === 'user' && m.body.startsWith('echo: Your usage limit has reset'))
+  await messageWhere('the note to the user', (m: any) => m.from_name === 'main' && m.source === 'system' && /Neural told main to carry on/.test(m.body))
+  // Exactly one nudge.
+  await new Promise(r => setTimeout(r, 1000))
+  const nudges = (await get('/api/messages?limit=500')).filter((m: any) => m.from_name === 'system' && m.to_name === 'main')
+  assert.deepEqual(nudges.map((m: any) => m.id), [nudge.id])
   await idle('main')
 })
 

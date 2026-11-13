@@ -28,7 +28,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -63,6 +63,10 @@ export const config = {
   orchestratorCwd: env('ORCHESTRATOR_CWD') ?? path.join(dataDir, 'orchestrator'),
   // Seconds to wait for evidence that a pushed message was read before falling back to a paste.
   ackTimeoutSec: Number(env('ACK_TIMEOUT') ?? 90),
+  // Tell a session cut off by a usage limit to carry on once the limit resets. The grace period gives Claude Code's
+  // own auto-continue the first chance, so the two don't both start a turn.
+  autoContinue: (env('AUTO_CONTINUE') ?? (file.autoContinue === false ? 'off' : 'on')) !== 'off',
+  resumeGraceMs: Number(env('RESUME_GRACE_MS') ?? 120_000),
   // How often to check that sessions are alive, and the first delay before restarting a dead one (doubles each try).
   reconcileMs: Number(env('RECONCILE_MS') ?? 15_000),
   restartBackoffMs: Number(env('RESTART_BACKOFF_MS') ?? 15_000),

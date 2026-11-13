@@ -108,8 +108,10 @@ client.fallbackNotificationHandler = async (n: any) => {
     await call('reply', { text: (r.isError ? 'ERROR ' : '') + r.content[0].text, in_reply_to: msg_id })
     return hook('Stop', { last_assistant_message: 'Replied.' })
   }
-  await call(from === 'user' ? 'reply' : 'send_message', {
-    ...(from === 'user' ? {} : { to: from.replace(/^session:/, '') }),
+  // The user and Neural itself are answered with reply; another session with send_message.
+  const toUser = !from.startsWith('session:')
+  await call(toUser ? 'reply' : 'send_message', {
+    ...(toUser ? {} : { to: from.replace(/^session:/, '') }),
     text: `echo: ${body}`,
     in_reply_to: msg_id,
   })

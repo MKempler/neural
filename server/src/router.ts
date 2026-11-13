@@ -17,6 +17,8 @@ export function sendMessage(m: { from: string; to: string; body: string; source:
   if (!body && !files.length) throw new Error('empty message')
   if (m.to !== 'user' && !sessions.get(m.to)) throw new Error(`no session "${m.to}"`)
   checkUnclaimed(files)
+  // A new message gives the session something to do after a usage limit, so it needs no nudge to carry on.
+  if (m.to !== 'user') resumeDue.delete(m.to)
   const stored = messages.insert({ from: m.from, to: m.to, body, source: m.source, in_reply_to: m.in_reply_to, client_key: m.client_key })
   if (files.length) claimFor(stored.id, files)
   if (m.to !== 'user') {
@@ -48,7 +50,8 @@ export function flush(target: string) {
     if (!ok) return
     outbox.markPushed(msg.id, 'channel')
     delivery(msg.id)
-    beginTurnIfIdle(target, msg.from_name === 'user')
+    // Neural's own messages (such as "carry on after the limit") continue the user's work, so they count as theirs.
+    beginTurnIfIdle(target, msg.from_name === 'user' || msg.from_name === 'system')
   }
 }
 
@@ -89,6 +92,8 @@ export function handleHook(name: string, event: string, payload: any) {
   const s = sessions.get(name)
   if (!s) return
   activity.set(name, Date.now())
+  // Working again after a usage limit (Claude Code's own auto-continue, or a prompt typed at the terminal).
+  if (event === 'PreToolUse' || event === 'UserPromptSubmit') resumeDue.delete(name)
   noteModel(name, event === 'PostModelSwitch' ? payload?.to_model : payload?.model, payload?.effort?.level ?? payload?.effort)
   if (event === 'PreToolUse') {
     // Tool calls after a pause (the usage limit reset, or work started at the terminal) mean it's working again.
@@ -237,12 +242,60 @@ export async function turnFailed(name: string, text: string, kind = '') {
   const after = limit
     ? auto
       ? 'Claude Code carries on by itself when it resets.'
-      : 'Send a message after it resets and the session picks up where it left off.'
+      : config.autoContinue
+        ? 'When it resets, Neural tells the session to carry on with the task.'
+        : 'Send a message after it resets and the session picks up where it left off.'
     : 'Send a message to try again.'
   sendMessage({
     from: name, to: 'user', source: 'error',
     body: `**${limit ? 'Usage limit reached.' : 'This turn stopped with an error.'}** ${text}\n\n${after}`,
   })
+}
+
+// ---------------------------------------------------------------------------------------------
+// After a usage limit resets: a session whose turn was cut off is told to carry on, so long work finishes
+// without the user having to notice the reset and type "continue".
+
+/** Sessions whose limit has reset, with when it reset, waiting to be told to carry on. */
+const resumeDue = new Map<string, number>()
+let lastResume = 0
+const RESUME_SPACING_MS = 60_000 // one session at a time, so they don't all spend the fresh window at once
+const RESUME_MAX_AGE_MS = 6 * 3600_000 // a limit found long after it reset (hub was down) is stale; leave it
+
+/** The limit reset at `at`: the session can take messages again, and is due a nudge if it stays quiet. */
+export function limitReset(name: string, at: number) {
+  const s = sessions.get(name)
+  if (!s || s.status !== 'limited') return
+  setStatus(name, 'idle')
+  events.add(name, 'limit-reset', { at: new Date(at).toISOString() })
+  // A weekly limit's reset is days away; by then the user may want to choose what runs first.
+  const weekly = /week/i.test(s.status_detail ?? '')
+  if (config.autoContinue && !weekly && Date.now() - at < RESUME_MAX_AGE_MS) resumeDue.set(name, at)
+  flush(name)
+}
+
+/** On the reconcile timer: nudge the next session that is still quiet a grace period after its reset. */
+export function resumeInterrupted(now = Date.now()) {
+  if (now - lastResume < RESUME_SPACING_MS) return
+  const due = [...resumeDue.entries()]
+    .filter(([, at]) => now - at >= config.resumeGraceMs)
+    .map(([name]) => sessions.get(name))
+    .filter(s => s != null)
+    // The orchestrator first: it may be coordinating the others.
+    .sort((a, b) => Number(b.role === 'orchestrator') - Number(a.role === 'orchestrator'))
+  for (const s of due) {
+    resumeDue.delete(s.name)
+    // Busy, gone or stopped since: nothing to resume. A message waiting for it will restart the work instead.
+    if (s.status !== 'idle' || !channels.has(s.name) || outbox.pending(s.name).length || outbox.pushed(s.name).length) continue
+    lastResume = now
+    events.add(s.name, 'auto-continue', null)
+    sendMessage({
+      from: 'system', to: s.name, source: 'system',
+      body: "Your usage limit has reset. Carry on with the task you were working on when the limit was reached, and don't repeat work that is already done. (Sent automatically by Neural.)",
+    })
+    sendMessage({ from: s.name, to: 'user', source: 'system', body: `**Usage limit reset.** Neural told ${s.name} to carry on with the task it was doing.` })
+    return
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

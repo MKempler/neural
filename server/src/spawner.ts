@@ -257,10 +257,11 @@ export async function reconcile() {
       // Ten minutes up since the last (re)start: it's healthy again, so later crashes get the full retry budget.
       // (Timed from the spawn, not updated_at, which every status change moves, so a busy session never got there.)
       if (s.restarts && s.channel_connected) markHealthy(s.name)
-      // Past the usage limit's reset time: ready again.
+      // Past the usage limit's reset time: ready again, and due to carry on with the task the limit cut off.
       if (s.status === 'limited') {
-        const at = (await import('./router.ts')).resetTime(s.status_detail ?? '', Date.parse(s.updated_at))
-        if (at && Date.now() > at) setStatus(s.name, 'idle')
+        const r = await import('./router.ts')
+        const at = r.resetTime(s.status_detail ?? '', Date.parse(s.updated_at))
+        if (at && Date.now() > at) r.limitReset(s.name, at)
       }
       // "Working" but silent for a while: check the terminal in case the turn ended without telling us.
       if (s.status === 'working' && Date.now() - Math.max(activity.get(s.name) ?? 0, Date.parse(s.updated_at)) > 90_000) {
@@ -292,6 +293,7 @@ export async function reconcile() {
       events.add(s.name, 'restart-failed', { error: String(e) })
     }
   }
+  ;(await import('./router.ts')).resumeInterrupted()
 }
 
 /** When each session's current process was started (since this hub started), to tell a stable session from a crash loop. */

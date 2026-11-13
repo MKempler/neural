@@ -185,7 +185,8 @@ which can run commands on your computer.
   need.
 - **Usage limits are handled.** When a session hits your plan's limit, it shows **usage limit** with the reset
   time, you get a message and a notification, and messages you send wait instead of being retried against the
-  limit. The status clears when the limit resets.
+  limit. When the limit resets, a session whose turn was cut off is told to carry on with its task, one session
+  a minute with `main` first, and you get a notification. Weekly limits are left for you to restart.
 - **Transcripts are archived.** Neural copies every Claude Code transcript on the machine into its
   database, so they stay searchable after Claude Code's own cleanup.
 
@@ -211,6 +212,7 @@ Everything is optional. Environment variables override `~/.local/share/neural/co
 | `NEURAL_TRANSCRIPTS_DIR` | `~/.claude/projects` | Transcripts to archive |
 | `NEURAL_AUTO_RELOAD` | on | `off` stops restarting on code changes and reloading open pages |
 | `NEURAL_ACK_TIMEOUT` | `90` | Seconds before an unread push is typed into the terminal instead |
+| `NEURAL_AUTO_CONTINUE` | on | `off` stops Neural telling sessions to carry on after a usage limit resets (or `"autoContinue": false` in `config.json`) |
 
 Moving from an install made before the rename to Neural? Run `bin/neural migrate` once. It moves
 `~/.local/share/claude-hub` and the login service over, and resumes your sessions.

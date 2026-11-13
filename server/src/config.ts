@@ -29,7 +29,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -70,6 +70,10 @@ export const config = {
   // own auto-continue the first chance, so the two don't both start a turn.
   autoContinue: (env('AUTO_CONTINUE') ?? (file.autoContinue === false ? 'off' : 'on')) !== 'off',
   resumeGraceMs: Number(env('RESUME_GRACE_MS') ?? 120_000),
+  // Restart a session started with an older Neural setup (hooks, status line, channel server) once it has been
+  // idle this long, so it picks up the change. Its conversation is resumed.
+  autoRefresh: (env('AUTO_REFRESH') ?? (file.autoRefresh === false ? 'off' : 'on')) !== 'off',
+  refreshIdleMs: Number(env('REFRESH_IDLE_MS') ?? 180_000),
   // How often to check that sessions are alive, and the first delay before restarting a dead one (doubles each try).
   reconcileMs: Number(env('RECONCILE_MS') ?? 15_000),
   restartBackoffMs: Number(env('RESTART_BACKOFF_MS') ?? 15_000),

@@ -47,6 +47,14 @@ export class Tmux implements Mux {
     }
   }
 
+  async attached(name: string) {
+    try {
+      return Number((await this.run(['display-message', '-p', '-t', this.target(name), '#{session_attached}'])).trim()) > 0
+    } catch {
+      return false
+    }
+  }
+
   async capture(name: string, history = 0) {
     const out = await this.run(['capture-pane', '-p', '-J', '-t', this.target(name), '-S', String(-history)])
     return out.replace(/\s+$/, '')

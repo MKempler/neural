@@ -260,6 +260,7 @@ const EVENT_TEXT = {
   'usage-limit': 'Usage limit reached',
   'limit-reset': 'Usage limit reset',
   'auto-continue': 'Told to carry on',
+  refresh: 'Restarted to pick up an update to Neural',
 }
 
 function detail(e) {

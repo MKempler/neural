@@ -43,6 +43,7 @@ Object.assign(process.env, {
   NEURAL_RESUME_GRACE_MS: '300',
   NEURAL_TEST_AGENTS: path.join(tmp, 'agents.json'),
   NEURAL_PROJECTS_ROOT: path.join(tmp, 'projects'),
+  NEURAL_REFRESH_IDLE_MS: '500',
   NEURAL_RESTART_BACKOFF_MS: '300',
 })
 
@@ -948,6 +949,23 @@ test('secrets are kept out of the archive, but reach the session they were sent 
   const raw2 = (db.prepare("SELECT raw FROM transcript_entries WHERE uuid = 'secret-2'").get() as any).raw
   assert.ok(!rawLine(raw2).includes(hf))
   assert.equal(await scrubArchive(), null) // once
+})
+
+test('a session started with an older setup is restarted once idle, and resumes its conversation', async () => {
+  const { sessions: rows, events } = await import('../server/src/db.ts')
+  const { launchRev } = await import('../server/src/spawner.ts')
+  await idle('main')
+  const before = await session('main')
+  assert.equal(before.launch_rev, launchRev(rows.get('main')!)) // recorded at launch, so nothing restarts by itself
+  rows.update('main', { launch_rev: 'older' })
+  const refresh = await until('the refresh', () => events.recent('main', 50).find((e: any) => e.event === 'refresh'), 20_000)
+  assert.equal(JSON.parse(refresh.payload).from, 'older')
+  const after = await until('back up with the new setup', async () => {
+    const s = await session('main')
+    return s.status === 'idle' && s.channel_connected && s.launch_rev !== 'older' ? s : null
+  }, 20_000)
+  assert.equal(after.claude_session_id, before.claude_session_id) // resumed, not a new conversation
+  assert.equal(after.launch_rev, launchRev(rows.get('main')!))
 })
 
 test('uploads over the size limit are refused', async () => {

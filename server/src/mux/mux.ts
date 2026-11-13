@@ -7,6 +7,8 @@ export interface Mux {
   alive(name: string): Promise<boolean>
   /** The visible screen plus up to `history` lines of scrollback, as plain text. */
   capture(name: string, history?: number): Promise<string>
+  /** True while someone has the terminal open (a browser's live terminal, or tmux attach on the Mac). */
+  attached(name: string): Promise<boolean>
   /** Send named keys (Enter, Escape, Up, C-c, …) or literal characters. */
   sendKeys(name: string, keys: string[]): Promise<void>
   /** Type text literally, without pressing Enter. */

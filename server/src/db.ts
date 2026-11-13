@@ -56,6 +56,7 @@ export type Session = {
   ended_at: string | null
   model: string | null
   effort: string | null
+  launch_rev: string | null
 }
 
 export type Message = {

@@ -208,6 +208,9 @@ which can run commands on your computer.
   by Neural use one that reports to the hub and shows "context 41% · 5-hour 62% (resets 20:20) · week 41%"
   in the terminal. A status line you set up yourself (in your user or project settings) still shows instead.
   The numbers appear after a session's first reply, and the limits only on a claude.ai plan.
+- **Sessions pick up Neural's updates by themselves.** A session started before Neural's hooks, status line or
+  channel server changed is restarted once it has been idle for 3 minutes, with nothing waiting to be
+  delivered, no question open and nobody in its terminal. Its conversation is resumed.
 - **Transcripts are archived.** Neural copies every Claude Code transcript on the machine into its
   database, so they stay searchable after Claude Code's own cleanup.
 - **Secrets are kept out of the archive.** Tokens and keys in known formats (Anthropic, OpenAI, GitHub,
@@ -242,6 +245,7 @@ Everything is optional. Environment variables override `~/.local/share/neural/co
 | `NEURAL_AUTO_RELOAD` | on | `off` stops restarting on code changes and reloading open pages |
 | `NEURAL_ACK_TIMEOUT` | `90` | Seconds before an unread push is typed into the terminal instead |
 | `NEURAL_AUTO_CONTINUE` | on | `off` stops Neural telling sessions to carry on after a usage limit resets (or `"autoContinue": false` in `config.json`) |
+| `NEURAL_AUTO_REFRESH` | on | `off` stops Neural restarting sessions started with an older setup once they've been idle for 3 minutes (or `"autoRefresh": false` in `config.json`) |
 
 Moving from an install made before the rename to Neural? Run `bin/neural migrate` once. It moves
 `~/.local/share/claude-hub` and the login service over, and resumes your sessions.

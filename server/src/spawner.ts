@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import crypto from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { ROOT, config, hubUrl, findBin } from './config.ts'
-import { sessions, events, permissions, outbox, usage, type Session } from './db.ts'
+import { sessions, events, permissions, outbox, usage, questions, type Session } from './db.ts'
 import { channels, setStatus, sessionChanged, bus, turns, activity } from './live.ts'
 import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
@@ -30,8 +31,7 @@ function resolveClaude(): string {
 
 // Per-session config files: the hub's MCP server and hooks are passed on the command line,
 // so nothing is added to the user's global Claude Code settings.
-function writeRunFiles(s: Session) {
-  fs.mkdirSync(config.uploadsDir, { recursive: true, mode: 0o700 })
+function runConfig(s: Session) {
   const mcpFile = path.join(config.runDir, `${s.name}.mcp.json`)
   const settingsFile = path.join(config.runDir, `${s.name}.settings.json`)
   const mcp = {
@@ -58,17 +58,41 @@ function writeRunFiles(s: Session) {
   // The status line feeds the usage and context meter; a status line of the user's own still shows in the terminal.
   const ownFile = path.join(config.runDir, `${s.name}.statusline.sh`)
   const own = ownStatusLine(s.cwd)
-  if (own) fs.writeFileSync(ownFile, own + '\n', { mode: 0o600 })
-  else fs.rmSync(ownFile, { force: true })
   const statusUrl = `${hubUrl}/hooks/statusline?session=${encodeURIComponent(s.name)}&secret=${config.secret}`
   const settings = {
     hooks: Object.fromEntries(HOOK_EVENTS.map(e => [e, [hook(e)]])),
     statusLine: { type: 'command', command: ['/bin/sh', path.join(ROOT, 'channel/statusline.sh'), statusUrl, ownFile].map(shellQuote).join(' ') },
   }
-  fs.writeFileSync(mcpFile, JSON.stringify(mcp, null, 2), { mode: 0o600 })
-  fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), { mode: 0o600 })
-  return { mcpFile, settingsFile }
+  return { mcpFile, settingsFile, mcp, settings, own, ownFile }
 }
+
+function writeRunFiles(s: Session) {
+  fs.mkdirSync(config.uploadsDir, { recursive: true, mode: 0o700 })
+  const c = runConfig(s)
+  if (c.own) fs.writeFileSync(c.ownFile, c.own + '\n', { mode: 0o600 })
+  else fs.rmSync(c.ownFile, { force: true })
+  fs.writeFileSync(c.mcpFile, JSON.stringify(c.mcp, null, 2), { mode: 0o600 })
+  fs.writeFileSync(c.settingsFile, JSON.stringify(c.settings, null, 2), { mode: 0o600 })
+  return c
+}
+
+/** A fingerprint of what a session gets at launch: its channel server and settings (hooks, status line), the
+ *  flags, and the code of the channel server and status line script, whose changes only reach a session when it
+ *  starts. A session launched with a different one is out of date. */
+export function launchRev(s: Session): string {
+  const { mcp, settings, own } = runConfig(s)
+  const h = crypto.createHash('sha256').update(JSON.stringify({ mcp, settings, own, flags: FLAGS }))
+  for (const f of ['channel/neural-channel.ts', 'channel/statusline.sh']) h.update(fs.readFileSync(path.join(ROOT, f)))
+  return h.digest('hex').slice(0, 16)
+}
+
+const FLAGS = [
+  '--permission-mode', 'auto',
+  // Attached files live here; this lets the session open them without asking.
+  '--add-dir', config.uploadsDir,
+  // Custom channels are not on the research-preview allowlist, so they load through the development flag.
+  '--dangerously-load-development-channels', 'server:neural',
+]
 
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
@@ -88,17 +112,7 @@ function ownStatusLine(cwd: string): string | null {
 
 export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
   const { mcpFile, settingsFile } = writeRunFiles(s)
-  const argv = [
-    resolveClaude(),
-    '--name', s.name,
-    '--permission-mode', 'auto',
-    '--mcp-config', mcpFile,
-    '--settings', settingsFile,
-    // Attached files live here; this lets the session open them without asking.
-    '--add-dir', config.uploadsDir,
-    // Custom channels are not on the research-preview allowlist, so they load through the development flag.
-    '--dangerously-load-development-channels', 'server:neural',
-  ]
+  const argv = [resolveClaude(), '--name', s.name, '--mcp-config', mcpFile, '--settings', settingsFile, ...FLAGS]
   if (opts.resume && s.claude_session_id) argv.push('--resume', s.claude_session_id)
   return argv
 }
@@ -125,6 +139,7 @@ export async function startSession(
   // The channel server negotiates the earlier MCP handshake; newer revisions do not register channels.
   const env = { MCP_PROTOCOL_NEGOTIATION: 'legacy' }
   await mux.spawn(name, cwd, launchArgv(s, { resume: opts.resume }), env)
+  sessions.update(name, { launch_rev: launchRev(s) })
   spawnedAt.set(name, Date.now())
   events.add(name, 'spawn', { resume: Boolean(opts.resume && s.claude_session_id) })
   sessionChanged(name)
@@ -303,6 +318,7 @@ export function waitFor(name: string, until: string[], timeoutMs: number): Promi
 // On a timer: notice dead sessions and bring them back. A session is wanted until the user stops it
 // (from the UI, or by exiting Claude in its terminal), so a crash or a reboot ends in a resumed session.
 export async function reconcile() {
+  let refreshedThisPass = false
   for (const row of sessions.all()) {
     if (row.status === 'stopped') continue
     const alive = await mux.alive(row.name)
@@ -318,6 +334,11 @@ export async function reconcile() {
         const r = await import('./router.ts')
         const at = r.resetTime(s.status_detail ?? '', Date.parse(s.updated_at))
         if (at && Date.now() > at) r.limitReset(s.name, at)
+      }
+      // Started with an older Neural setup: restart it, once it's idle, to pick up the new one. One per pass.
+      if (!refreshedThisPass && (await refreshIfOutdated(s))) {
+        refreshedThisPass = true
+        continue
       }
       // "Working" but silent for a while: check the terminal in case the turn ended without telling us.
       if (s.status === 'working' && Date.now() - Math.max(activity.get(s.name) ?? 0, Date.parse(s.updated_at)) > 90_000) {
@@ -350,6 +371,31 @@ export async function reconcile() {
     }
   }
   ;(await import('./router.ts')).resumeInterrupted()
+}
+
+const refreshedAt = new Map<string, number>()
+
+/** Restart a session launched with an older setup, when that interrupts nothing: idle for a while, connected,
+ *  nothing waiting to be delivered, no question or approval open, and nobody looking at its terminal.
+ *  The conversation is resumed. At most once every half hour per session, in case something keeps changing. */
+async function refreshIfOutdated(s: Session): Promise<boolean> {
+  if (!config.autoRefresh || s.status !== 'idle' || !s.channel_connected) return false
+  if (Date.now() - Math.max(activity.get(s.name) ?? 0, Date.parse(s.updated_at)) < config.refreshIdleMs) return false
+  if (Date.now() - (refreshedAt.get(s.name) ?? 0) < 30 * 60_000) return false
+  let rev: string
+  try {
+    rev = launchRev(s)
+  } catch {
+    return false
+  }
+  if (s.launch_rev === rev) return false
+  if (outbox.pending(s.name).length || outbox.pushed(s.name).length) return false
+  if (questions.openFor(s.name).length || permissions.open().some(p => p.session === s.name)) return false
+  if (await mux.attached(s.name)) return false
+  refreshedAt.set(s.name, Date.now())
+  events.add(s.name, 'refresh', { from: s.launch_rev, to: rev })
+  await restartSession(s.name)
+  return true
 }
 
 /** When each session's current process was started (since this hub started), to tell a stable session from a crash loop. */

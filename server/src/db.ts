@@ -2,9 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { ROOT, config } from './config.ts'
+import { clean } from './redact.ts'
 
 export const db = new DatabaseSync(config.dbPath, { allowExtension: true })
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;')
+// secure_delete: content that is changed or deleted (such as a redacted secret) is overwritten on disk, not left in free pages.
+db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL; PRAGMA secure_delete = ON;')
 
 // sqlite-vec adds vector search. Without it everything still works; search is keyword-only.
 export let vectorsEnabled = false
@@ -276,8 +278,9 @@ export const usage = {
 }
 
 export const events = {
-  add:(session: string | null, event: string, payload: unknown) =>
-    q('INSERT INTO events (session, event, payload) VALUES (?, ?, ?)').run(session, event, JSON.stringify(payload ?? null)),
+  // Hook payloads carry prompts and tool input, so they are redacted like everything else that's kept.
+  add: (session: string | null, event: string, payload: unknown) =>
+    q('INSERT INTO events (session, event, payload) VALUES (?, ?, ?)').run(session, event, clean(JSON.stringify(payload ?? null))),
   recent: (session: string, limit = 50) =>
     q<{ id: number; ts: string; event: string; payload: string }>('SELECT * FROM events WHERE session = ? ORDER BY id DESC LIMIT ?').all(session, limit),
 }

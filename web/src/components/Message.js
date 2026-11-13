@@ -5,15 +5,16 @@ import { Icon } from '../icons.js'
 import { lightbox, retrySend, discardSend } from '../store.js'
 import { RecapLine } from './Changes.js'
 
-/** The turn recap the server attached to a reply, if any. */
-function recapOf(m) {
-  if (!m.meta) return null
+/** What the server attached to a message: a turn recap, the kinds of secrets kept out of the archive. */
+function metaOf(m) {
+  if (!m.meta) return {}
   try {
-    return (typeof m.meta === 'string' ? JSON.parse(m.meta) : m.meta).recap ?? null
+    return (typeof m.meta === 'string' ? JSON.parse(m.meta) : m.meta) ?? {}
   } catch {
-    return null
+    return {}
   }
 }
+const recapOf = m => metaOf(m).recap ?? null
 
 const DELIVERY = { sending: 'sending', queued: 'waiting for connection', pending: 'queued', pushed: 'sent', acked: 'delivered', failed: 'not delivered' }
 
@@ -91,6 +92,8 @@ export function Message({ m, context, continued, onQuote }) {
       ${m.body && html`<div class="md" dangerouslySetInnerHTML=${{ __html: markdown(m.body) }}></div>`}
       <${Attachments} list=${m.attachments} />
       ${recapOf(m) && html`<${RecapLine} recap=${recapOf(m)} session=${m.from_name} />`}
+      ${metaOf(m).redacted?.length > 0 && html`<div class="redacted-note" title="Kept out of Neural's history and search. A session it was sent to received it as written.">
+        <${Icon} name="check" size=${12} />${[...new Set(metaOf(m).redacted)].join(', ')} kept out of the archive</div>`}
       ${m.delivery === 'failed' && pending && html`<div class="failed-row">
         <span>${m.error || 'Not sent.'}</span>
         <button class="btn sm" onClick=${() => retrySend(m.key)}>Retry</button>

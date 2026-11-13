@@ -894,3 +894,4 @@ button.result:hover { background: var(--surface-2); }
 .plan-body:not(.open)::after { content: ''; position: absolute; inset: auto 0 0; height: 48px; background: linear-gradient(transparent, var(--bg)); }
 .plan-body .md { font-size: var(--fs-md); }
 .attention .ask { margin: 0; }
+.redacted-note { display: flex; align-items: center; gap: 5px; margin-top: 4px; font: var(--fs-xs)/1.4 var(--mono); color: var(--text-3); }

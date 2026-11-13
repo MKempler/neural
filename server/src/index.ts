@@ -20,6 +20,7 @@ import { backupNow, listBackups } from './backup.ts'
 import * as git from './git.ts'
 import * as usage from './usage.ts'
 import * as projects from './projects.ts'
+import { scrubArchive } from './scrub.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
@@ -509,6 +510,11 @@ export async function start() {
   seedModels()
   // Archived transcript lines from before they were stored compressed; a no-op once converted.
   setTimeout(() => compressOldRaw().catch(e => console.error('compressing archived transcript lines failed:', e)), 20_000).unref()
+  // Secrets stored before redaction existed: redacted once (again when the rules change).
+  setTimeout(() => scrubArchive().then(
+    counts => counts && console.log('neural: redacted secrets already in the archive:', JSON.stringify(counts)),
+    e => console.error('redacting the archive failed:', e),
+  ), 30_000).unref()
   watchForChanges(stop)
   return server
 }

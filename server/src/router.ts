@@ -1,6 +1,7 @@
 import { config } from './config.ts'
 import { sessions, messages, outbox, events, permissions, questions, type Message } from './db.ts'
 import { Driver, type PlanAnswer, type QuestionAnswer } from './dialogs.ts'
+import { redact } from './redact.ts'
 import { searchAll } from './embed.ts'
 import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
 import { notify } from './push.ts'
@@ -10,6 +11,9 @@ import * as projects from './projects.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
+/** Message bodies as written, before redaction, until they are delivered. */
+const original = new Map<number, string>()
+const bodyFor = (m: Message) => original.get(m.id) ?? m.body
 
 // ---------------------------------------------------------------------------------------------
 // Sending: every message is stored first, then delivered.
@@ -22,7 +26,14 @@ export function sendMessage(m: { from: string; to: string; body: string; source:
   checkUnclaimed(files)
   // A new message gives the session something to do after a usage limit, so it needs no nudge to carry on.
   if (m.to !== 'user') resumeDue.delete(m.to)
-  const stored = messages.insert({ from: m.from, to: m.to, body, source: m.source, in_reply_to: m.in_reply_to, client_key: m.client_key })
+  // Secrets are kept out of the archive. A session the message is for still gets the original, held in memory
+  // until it has been delivered (so after a hub restart it gets the redacted text).
+  const safe = redact(body)
+  const stored = messages.insert({
+    from: m.from, to: m.to, body: safe.text, source: m.source, in_reply_to: m.in_reply_to, client_key: m.client_key,
+    meta: safe.found.length ? { redacted: safe.found } : undefined,
+  })
+  if (safe.found.length && m.to !== 'user') original.set(stored.id, body)
   if (files.length) claimFor(stored.id, files)
   if (m.to !== 'user') {
     outbox.add(stored.id, m.to)
@@ -44,12 +55,13 @@ export function flush(target: string) {
     const msg = messages.get(row.message_id)
     if (!msg) continue
     if (row.attempts >= MAX_ATTEMPTS) {
+      original.delete(row.message_id)
       outbox.markFailed(row.message_id, 'gave up after repeated delivery attempts')
       delivery(row.message_id)
       continue
     }
     const from = msg.from_name === 'user' || msg.from_name === 'system' ? msg.from_name : `session:${msg.from_name}`
-    const ok = sendToChannel(target, { type: 'push', msg_id: String(msg.id), from, ts: msg.ts, body: forClaude(msg.id, msg.body) })
+    const ok = sendToChannel(target, { type: 'push', msg_id: String(msg.id), from, ts: msg.ts, body: forClaude(msg.id, bodyFor(msg)) })
     if (!ok) return
     outbox.markPushed(msg.id, 'channel')
     delivery(msg.id)
@@ -70,6 +82,7 @@ function delivery(messageId: number) {
 }
 
 function ack(messageId: number, by: string) {
+  original.delete(messageId)
   if (outbox.markAcked(messageId, by).changes) delivery(messageId)
 }
 
@@ -489,6 +502,7 @@ export async function retryStale() {
     const msg = messages.get(row.message_id)
     if (!msg) continue
     if (row.attempts >= MAX_ATTEMPTS) {
+      original.delete(row.message_id)
       outbox.markFailed(row.message_id, 'no sign of delivery after retries')
       delivery(row.message_id)
       setStatus(row.target, 'attention', 'Messages are not getting through. Open the terminal view to check on it.')
@@ -501,7 +515,7 @@ export async function retryStale() {
       outbox.markPushed(row.message_id, 'paste')
       turns.set(row.target, { startedAt: Date.now(), replied: false, forUser: msg.from_name === 'user' })
       events.add(row.target, 'fallback-paste', { message_id: row.message_id })
-      await mux.paste(row.target, `[Neural message from ${from}, msg_id=${msg.id}; answer with the neural reply tool]\n${forClaude(msg.id, msg.body)}`)
+      await mux.paste(row.target, `[Neural message from ${from}, msg_id=${msg.id}; answer with the neural reply tool]\n${forClaude(msg.id, bodyFor(msg))}`)
       delivery(row.message_id)
       setStatus(row.target, 'working')
     } catch (e) {

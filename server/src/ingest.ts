@@ -4,6 +4,7 @@ import zlib from 'node:zlib'
 import { config } from './config.ts'
 import { db, sessions, outbox } from './db.ts'
 import { broadcast } from './live.ts'
+import { clean } from './redact.ts'
 import { noteModel, turnFailed } from './router.ts'
 
 // Archives Claude Code transcripts into the hub database so they stay searchable after Claude Code's own
@@ -138,8 +139,9 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
       const found = extract(entry)
       if (!found) continue
       const name = nameFor(entry.sessionId, names)
-      const raw = pack(line.length <= MAX_RAW ? line : JSON.stringify({ truncated: true, bytes: line.length }))
-      const r = insert.run(entry.sessionId, name, project, entry.uuid, entry.timestamp ?? null, found.role, found.text, raw)
+      // Secrets are redacted in both the text and the original line before either is stored.
+      const raw = pack(line.length <= MAX_RAW ? clean(line) : JSON.stringify({ truncated: true, bytes: line.length }))
+      const r = insert.run(entry.sessionId, name, project, entry.uuid, entry.timestamp ?? null, found.role, found.text == null ? null : clean(found.text), raw)
       if (!r.changes) continue
       added++
       // A hub message showing up in the session's own transcript is proof it was delivered.

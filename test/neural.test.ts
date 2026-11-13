@@ -886,6 +886,70 @@ test("Claude's questions and plans are answered from the app", async () => {
   await idle('main')
 })
 
+test('secrets are kept out of the archive, but reach the session they were sent to', async () => {
+  const { redact } = await import('../server/src/redact.ts')
+  const hf = 'hf_' + 'Q7'.repeat(17)
+  const cases: [string, string][] = [
+    [`my token is ${hf} ok`, 'my token is [redacted Hugging Face token] ok'],
+    ['OPENAI_API_KEY=sk-proj-' + 'Ab1'.repeat(15), 'OPENAI_API_KEY=[redacted OpenAI key]'],
+    ['sk-ant-api03-' + 'x9'.repeat(20), '[redacted Anthropic key]'],
+    ['https://bob:hunter2long@github.com/x', 'https://bob:[redacted password]@github.com/x'],
+    ['{"password":"' + 'Zx9'.repeat(7) + '"}', '{"password":"[redacted secret]"}'],
+    ['ghp_' + 'A1'.repeat(18), '[redacted GitHub token]'],
+    ['aws AKIAIOSFODNN7EXAMPLE here', 'aws [redacted AWS key] here'],
+    ['-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----', '[redacted private key]'],
+  ]
+  for (const [input, want] of cases) assert.equal(redact(input).text, want)
+  // Ordinary text and code are left alone.
+  for (const keep of ['const token = process.env.GITHUB_TOKEN', 'max_tokens: 1000000', 'commit 3f2a9c1e5b7d9f0a1c3e5b7d9f0a1c3e5b7d9f0a', 'the secret sauce'])
+    assert.equal(redact(keep).text, keep)
+
+  // A message with a token: stored and shown redacted, delivered to the session as written.
+  await idle('main')
+  const sent = await say('main', `use ${hf} please`)
+  assert.equal(sent.body, 'use [redacted Hugging Face token] please')
+  assert.deepEqual(JSON.parse(sent.meta).redacted, ['Hugging Face token'])
+  const reply = await messageWhere('the echo', (m: any) => m.in_reply_to === sent.id)
+  assert.equal(reply.body, 'echo: use [redacted Hugging Face token] please') // the session's own copy is redacted when stored
+  const { mux } = await import('../server/src/spawner.ts')
+  assert.ok((await mux.capture('main', 200)).includes(hf), 'the session received the token')
+  const { db, events } = await import('../server/src/db.ts')
+  assert.ok(!JSON.stringify(events.recent('main', 200)).includes(hf), 'hook payloads are redacted')
+  await idle('main')
+
+  // Archived transcripts: the text and the original line.
+  const id = (await session('main')).claude_session_id
+  const dir = path.join(tmp, 'transcripts', 'main-project')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.appendFileSync(path.join(dir, `${id}.jsonl`), JSON.stringify({
+    type: 'user', uuid: 'secret-1', sessionId: id, timestamp: new Date().toISOString(), message: { role: 'user', content: `here: ${hf}` },
+  }) + '\n')
+  const { rawLine } = await import('../server/src/ingest.ts')
+  const entry = await until('archived', () => db.prepare("SELECT text, raw FROM transcript_entries WHERE uuid = 'secret-1'").get() as any)
+  assert.equal(entry.text, 'here: [redacted Hugging Face token]')
+  assert.ok(!rawLine(entry.raw).includes(hf) && rawLine(entry.raw).includes('[redacted Hugging Face token]'))
+
+  // What was stored before redaction existed is cleaned once, search indexes included.
+  const { messages, prefs } = await import('../server/src/db.ts')
+  const old = db.prepare("INSERT INTO messages (from_name, to_name, body, source) VALUES ('user', 'main', ?, 'ui')").run(`old ${hf}`)
+  db.prepare("INSERT INTO transcript_entries (claude_session_id, uuid, role, text, raw) VALUES ('x', 'secret-2', 'user', ?, ?)").run(`older ${hf}`, `{"t":"${hf}"}`)
+  const hits = (table: string) => (db.prepare(`SELECT count(*) AS n FROM ${table} WHERE ${table} MATCH ?`).get(`"${hf.slice(3)}"`) as any).n
+  assert.equal(hits('messages_fts'), 1)
+  assert.equal(hits('transcript_fts'), 1)
+  prefs.set('scrubVersion', 0)
+  const { scrubArchive } = await import('../server/src/scrub.ts')
+  const counts = await scrubArchive()
+  assert.equal(counts!.messages, 1)
+  assert.equal(counts!.transcripts, 1)
+  assert.equal(messages.get(Number(old.lastInsertRowid))!.body, 'old [redacted Hugging Face token]')
+  assert.equal(hits('messages_fts'), 0)
+  assert.equal(hits('transcript_fts'), 0)
+  assert.equal((db.prepare("SELECT count(*) AS n FROM messages_fts WHERE messages_fts MATCH 'redacted'").get() as any).n > 0, true)
+  const raw2 = (db.prepare("SELECT raw FROM transcript_entries WHERE uuid = 'secret-2'").get() as any).raw
+  assert.ok(!rawLine(raw2).includes(hf))
+  assert.equal(await scrubArchive(), null) // once
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

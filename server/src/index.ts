@@ -40,9 +40,24 @@ const secretOk = (given: string | null) =>
   typeof given === 'string' && given.length === config.secret.length &&
   crypto.timingSafeEqual(Buffer.from(given), Buffer.from(config.secret))
 
+// Host names the hub answers to. A web page can point a domain it owns at 127.0.0.1 (DNS rebinding); its
+// requests then carry a matching Origin and Host, so the Origin check alone would let it drive the API.
+// The raw Host header is checked, not X-Forwarded-Host, because such a page can set that header itself.
+export function hostAllowed(host: string | undefined) {
+  if (!host) return false
+  let name: string
+  try {
+    name = new URL(`http://${host}`).hostname.toLowerCase()
+  } catch {
+    return false
+  }
+  return ['127.0.0.1', 'localhost', '[::1]'].includes(name) || name.endsWith('.ts.net') || config.allowedHosts.includes(name)
+}
+
 // The hub only listens on localhost. Browsers reach it directly or through `tailscale serve`, which adds
 // identity headers. Rejecting foreign Origins stops other web pages from driving the API or the socket.
 function checkBrowser(req: http.IncomingMessage) {
+  if (!hostAllowed(req.headers.host)) throw new HttpError(403, 'unknown host name; add it to allowedHosts in config.json')
   const origin = req.headers.origin
   if (origin) {
     let originHost = ''

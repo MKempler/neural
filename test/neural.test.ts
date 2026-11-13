@@ -3,6 +3,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -582,6 +583,20 @@ test('uploads over the size limit are refused', async () => {
 
 test('requests from other origins and without the secret are refused', async () => {
   assert.equal((await api('GET', '/api/sessions', undefined, { origin: 'http://evil.example' })).status, 403)
+  // DNS rebinding: a page on a domain resolving to 127.0.0.1 sends matching Origin and Host headers.
+  const rebound = (headers: Record<string, string>) => new Promise<number>((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path: '/api/sessions', headers }, res => {
+      res.resume()
+      resolve(res.statusCode ?? 0)
+    }).on('error', reject)
+  })
+  assert.equal(await rebound({ host: `evil.example:${port}`, origin: `http://evil.example:${port}` }), 403)
+  assert.equal(await rebound({ host: `evil.example:${port}`, 'x-forwarded-host': `127.0.0.1:${port}` }), 403)
+  assert.equal(await rebound({ host: `localhost:${port}`, origin: `http://localhost:${port}` }), 200)
+  const { hostAllowed } = await import('../server/src/index.ts')
+  assert.ok(hostAllowed('my-mac.tail1234.ts.net'))
+  assert.ok(!hostAllowed('ts.net.evil.example'))
+  assert.ok(!hostAllowed(undefined))
   assert.equal((await api('POST', '/hooks/Stop?session=main&secret=nope', {})).status, 403)
   assert.equal((await api('POST', '/api/sessions', { name: 'Bad Name', cwd: tmp })).status, 400)
   await assert.rejects(new Promise((resolve, reject) => {

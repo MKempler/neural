@@ -24,7 +24,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; displayName?: string } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -48,6 +48,10 @@ export const config = {
   allowedLogins: env('ALLOWED_LOGINS') !== undefined
     ? env('ALLOWED_LOGINS')!.split(',').map(s => s.trim()).filter(Boolean)
     : (file.allowedLogins ?? []),
+  // Host names the UI may be reached by, besides localhost and Tailscale (*.ts.net) names: for example a custom
+  // domain in front of `tailscale serve`. Anything else is refused, which stops DNS-rebinding pages.
+  allowedHosts: (env('ALLOWED_HOSTS') !== undefined ? env('ALLOWED_HOSTS')!.split(',') : (file.allowedHosts ?? []))
+    .map(s => s.trim().toLowerCase()).filter(Boolean),
   // Name used in the greeting. Kept in config.json, not in the code, because the repository is public.
   displayName: env('DISPLAY_NAME') ?? file.displayName ?? '',
   // Start (or resume) autostart sessions when the hub boots.

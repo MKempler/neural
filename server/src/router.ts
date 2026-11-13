@@ -211,7 +211,15 @@ export async function turnFailed(name: string, text: string, kind = '') {
   const s = sessions.get(name)
   if (!s) return
   const prev = lastFailure.get(name)
-  if (prev && prev.text === text && Date.now() - prev.at < 10 * 60_000) return
+  if (prev && Date.now() - prev.at < 10 * 60_000) {
+    // Still stopped on the failure already reported: this is the other source (hook or transcript) telling the
+    // same story, usually in different words. One message is enough; keep the text that says when it resets.
+    if (['limited', 'attention'].includes(s.status)) {
+      if (resetTime(text) && !resetTime(s.status_detail ?? '')) setStatus(name, s.status, text)
+      return
+    }
+    if (prev.text === text) return
+  }
   lastFailure.set(name, { text, at: Date.now() })
   setDoing(name, null)
   turns.delete(name)

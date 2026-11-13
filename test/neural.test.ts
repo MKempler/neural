@@ -608,8 +608,9 @@ test('a usage limit is shown, not left spinning as "working"', async () => {
   await say('main', 'slow and long')
   // Wait for the stand-in's own tool report first; a real session reports nothing after its turn has failed.
   await until('working', async () => (await session('main')).activity?.text === 'Running the test suite')
-  // Claude Code ends the turn with StopFailure and an error reply in the transcript; either reports it once.
-  handleHook('main', 'StopFailure', { error: { type: 'rate_limit', message: "You've hit your 5-hour limit · resets 8:20pm" } })
+  // Claude Code ends the turn with StopFailure and an error reply in the transcript, worded differently;
+  // together they make one message, and the status keeps the wording that says when the limit resets.
+  handleHook('main', 'StopFailure', { error: { type: 'rate_limit', message: 'Usage limit reached' } })
   const id = (await session('main')).claude_session_id
   const dir = path.join(tmp, 'transcripts', 'main-project')
   fs.mkdirSync(dir, { recursive: true })
@@ -627,6 +628,7 @@ test('a usage limit is shown, not left spinning as "working"', async () => {
   const notes = (await get('/api/messages?session=main')).filter((m: any) => m.source === 'error')
   assert.equal(notes.length, 1)
   assert.match(notes[0].body, /Usage limit reached/)
+  assert.match((await session('main')).status_detail, /resets 8:20pm/)
   // A tool call after the reset means it is working again.
   handleHook('main', 'PreToolUse', { tool_name: 'Read', tool_input: { file_path: '/x/y.ts' } })
   assert.equal((await session('main')).status, 'working')

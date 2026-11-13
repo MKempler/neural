@@ -17,6 +17,7 @@ import * as push from './push.ts'
 import * as terminal from './terminal.ts'
 import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from './files.ts'
 import { backupNow, listBackups } from './backup.ts'
+import * as git from './git.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
@@ -177,6 +178,13 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       return { screen: await mux.capture(name, num(url.searchParams.get('history')) ?? 0).catch(() => '') }
     case 'GET events':
       return events.recent(name)
+    case 'GET changes': {
+      // The session's repository: branch, push state, uncommitted files and commits; or one diff.
+      const s = sessions.get(name)
+      if (!s) throw new HttpError(404, 'unknown session')
+      if (parts[2] === 'diff') return git.diff(s.cwd, url.searchParams.get('ref')).catch(e => { throw new HttpError(400, e.message) })
+      return { changes: await git.changes(s.cwd) }
+    }
 
     case 'GET messages': {
       const opts = { before: num(url.searchParams.get('before')), after: num(url.searchParams.get('after')), limit: num(url.searchParams.get('limit')) }

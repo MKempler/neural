@@ -54,8 +54,11 @@ are trademarks of Anthropic.
 
 - **Home:** what needs you (approvals, stuck sessions, unread replies), a card per session with its state
   and last message, recent activity across sessions, and a box to message `main`.
-- **Session:** the conversation, the live terminal and an activity log of what the session did. On a wide
-  screen the conversation and terminal can sit side by side.
+- **Session:** the conversation, the live terminal, the session's changes and an activity log of what it did.
+  On a wide screen the conversation and terminal can sit side by side.
+- **Changes:** the branch and whether it's pushed, uncommitted files and recent commits, each with a diff that
+  reads on a phone. Under each reply, a line such as "2 commits · 5 files · +180 −42 · 2 not pushed" says what
+  that turn changed; tap it to see the diffs. Neural only reads the repository; pushing is left to the session.
 - **On the phone:**
   - chat-style messages, with copy and quote on tap
   - a composer with + for camera, photos and files, and Send that turns into Stop while the session works
@@ -245,6 +248,7 @@ server/src/index.ts       HTTP, WebSockets, hook endpoint, static files
 server/src/router.ts      store-then-deliver, acknowledgements, fallbacks, session tools
 server/src/spawner.ts     launching sessions, startup prompts, crash recovery
 server/src/ingest.ts      transcript archive
+server/src/git.ts         a session's changes: branch, commits, diffs and turn recaps (read-only)
 server/src/embed.ts       meaning-based search (local model + sqlite-vec)
 server/src/files.ts       attachments: storage, photo conversion, video stills
 server/src/push.ts        Web Push notifications

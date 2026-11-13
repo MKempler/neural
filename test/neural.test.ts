@@ -668,6 +668,59 @@ test('a session cut off by a usage limit carries on by itself once the limit res
   await idle('main')
 })
 
+test('the changes view and turn recaps read the session\'s repository', async () => {
+  const git = await import('../server/src/git.ts')
+  const { handleHook } = await import('../server/src/router.ts')
+  const { sessions: rows, messages } = await import('../server/src/db.ts')
+  const repo = path.join(tmp, 'repo')
+  fs.mkdirSync(repo, { recursive: true })
+  const run = (...args: string[]) => execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.com', ...args], { cwd: repo })
+  run('init', '-q', '-b', 'main')
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\ntwo\n')
+  fs.writeFileSync(path.join(repo, 'left-alone.txt'), 'x\n')
+  run('add', '.')
+  run('commit', '-qm', 'First')
+  fs.writeFileSync(path.join(repo, 'left-alone.txt'), 'dirty before the turn\n') // dirty, and not touched by the turn
+
+  assert.equal(await git.changes(tmp + '/transcripts'), null) // not a repository
+  const before = await git.changes(repo)
+  assert.equal(before!.branch, 'main')
+  assert.equal(before!.upstream, null)
+  assert.deepEqual(before!.files, [{ path: 'left-alone.txt', code: 'M' }])
+  assert.equal(before!.commits[0].subject, 'First')
+
+  // A turn in a session working there: one commit, one new file, one edit left uncommitted.
+  rows.create('repo-work', 'worker', repo, false)
+  handleHook('repo-work', 'UserPromptSubmit', { prompt: 'do it' })
+  await new Promise(r => setTimeout(r, 300)) // the snapshot is taken in the background
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\nTWO\nthree\n')
+  run('commit', '-qm', 'Second', '--', 'a.txt')
+  fs.writeFileSync(path.join(repo, 'new.txt'), 'hello\n')
+  const reply = messages.insert({ from: 'repo-work', to: 'user', body: 'Done.', source: 'reply' })
+  handleHook('repo-work', 'Stop', { last_assistant_message: 'Done.' })
+  // The recap goes on the turn's last message to the user (here the reply, then the terminal-answer copy of it).
+  const recap = await until('recap', () => {
+    const meta = messages.thread('repo-work').filter(m => m.to_name === 'user' && m.id >= reply.id).at(-1)?.meta
+    return meta ? JSON.parse(meta).recap : null
+  })
+  // left-alone.txt was dirty before and untouched, so it doesn't count; a.txt (committed) and new.txt do.
+  assert.deepEqual(recap, { commits: 1, files: 2, insertions: 2, deletions: 1, unpushed: null, branch: 'main' })
+
+  // Diffs: everything uncommitted (untracked files included), and one commit.
+  const work = await git.diff(repo)
+  assert.match(work!.diff, /left-alone\.txt/)
+  assert.match(work!.diff, /\+hello/)
+  const sha = (await git.changes(repo))!.commits[0].sha
+  assert.match((await git.diff(repo, sha))!.diff, /\+TWO/)
+  await assert.rejects(git.diff(repo, 'HEAD; rm -rf /'), /not a commit id/)
+
+  // Over HTTP.
+  assert.equal((await get('/api/changes/main')).changes, null)
+  assert.equal((await get('/api/changes/repo-work')).changes.commits.length, 2)
+  assert.equal((await api('GET', '/api/changes/repo-work/diff?ref=nope')).status, 400)
+  await (await import('../server/src/spawner.ts')).removeSession('repo-work')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

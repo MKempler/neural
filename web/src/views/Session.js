@@ -1,4 +1,4 @@
-// One session: conversation, live terminal and activity log.
+// One session: conversation, live terminal, changes and activity log.
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { html, api, clock, dayLabel, tilde, shortPath, local, unmark, modelChip, isCommand, opensPicker } from '../lib.js'
 import { Icon } from '../icons.js'
@@ -6,12 +6,13 @@ import { Dot, Menu, PermissionCard, StatusPill } from '../components/parts.js'
 import { Composer, DropZone } from '../components/Composer.js'
 import { Message, ActivityLine } from '../components/Message.js'
 import { Terminal } from '../components/Terminal.js'
+import { Changes, recapText } from '../components/Changes.js'
 import {
   sessions, threads, permissions, route, navigate, sessionPath, loadThread, loadOlder,
   sessionAction, removeSession, readLatest, pendingSends, sendNow, interrupt, switcherOpen, modelSheet,
 } from '../store.js'
 
-const TABS = [['chat', 'Conversation', 'chat'], ['terminal', 'Terminal', 'terminal'], ['activity', 'Activity', 'activity']]
+const TABS = [['chat', 'Conversation', 'chat'], ['terminal', 'Terminal', 'terminal'], ['changes', 'Changes', 'branch'], ['activity', 'Activity', 'activity']]
 
 export function Session() {
   const { name, tab } = route.value
@@ -24,7 +25,7 @@ export function Session() {
     if (!threads.value[name]) loadThread(name).catch(() => {})
   }, [name])
   useEffect(() => {
-    if (tab !== 'activity') readLatest(name)
+    if (tab !== 'activity' && tab !== 'changes') readLatest(name)
   }, [name, tab, s?.last_message?.id])
 
   if (!s) {
@@ -46,6 +47,7 @@ export function Session() {
   const showNotice = s.status_detail && (['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && perms.length === 0))
 
   const menu = [
+    phone && tab !== 'changes' && { label: 'Changes', icon: 'branch', run: () => setTab('changes') },
     phone && tab !== 'activity' && { label: 'Activity log', icon: 'activity', run: () => setTab('activity') },
     phone && tab !== 'chat' && { label: 'Conversation', icon: 'chat', run: () => setTab('chat') },
     { label: 'Model and effort', icon: 'settings', run: () => (modelSheet.value = name) },
@@ -62,7 +64,7 @@ export function Session() {
 
   const back = () => (history.length > 1 ? history.back() : navigate('/'))
   const chip = modelChip(s)
-  const subtitle = tab === 'terminal' ? 'terminal' : tab === 'activity' ? 'activity log' : [chip, shortPath(s.cwd, 30)].filter(Boolean).join(' · ')
+  const subtitle = tab === 'terminal' ? 'terminal' : tab === 'activity' ? 'activity log' : tab === 'changes' ? 'changes' : [chip, shortPath(s.cwd, 30)].filter(Boolean).join(' · ')
 
   return html`<section class="session">
     ${phone
@@ -103,6 +105,7 @@ export function Session() {
     <div class=${`panes ${splitting ? 'split' : ''}`}>
       ${tab === 'chat' && html`<div class="pane"><${Conversation} s=${s} /></div>`}
       ${(tab === 'terminal' || splitting) && html`<div class="pane"><${Terminal} name=${name} key=${name} /></div>`}
+      ${tab === 'changes' && html`<div class="pane"><${Changes} s=${s} /></div>`}
       ${tab === 'activity' && html`<div class="pane"><${ActivityLog} name=${name} status=${s.status} /></div>`}
     </div>
   </section>`
@@ -244,6 +247,10 @@ const EVENT_TEXT = {
   'fallback-paste': 'Message typed into the terminal',
   'fallback-failed': 'Fallback delivery failed',
   'restart-failed': 'Restart failed',
+  'turn-recap': 'Changes in the turn',
+  'usage-limit': 'Usage limit reached',
+  'limit-reset': 'Usage limit reset',
+  'auto-continue': 'Told to carry on',
 }
 
 function detail(e) {
@@ -260,6 +267,8 @@ function detail(e) {
   if (e.event === 'hook:SessionStart') return p.source ?? ''
   if (e.event === 'hook:SessionEnd') return p.reason ?? ''
   if (e.event === 'dialog') return p.dialog ?? ''
+  if (e.event === 'turn-recap') return recapText(p)
+  if (e.event === 'usage-limit') return p.text ?? ''
   if (e.event === 'spawn') return p.resume ? 'resuming its conversation' : 'new conversation'
   if (p.message_id) return `message ${p.message_id}`
   return p.error ?? ''

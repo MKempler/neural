@@ -132,6 +132,21 @@ export const messages = {
     ).all(name, opts.before ?? Number.MAX_SAFE_INTEGER, opts.after ?? 0, opts.limit ?? 100)
     return decorate(rows.reverse())
   },
+  /** The newest message a session sent the user at or after `since` (an ISO time). */
+  lastToUser: (name: string, since: string) =>
+    q<{ id: number }>("SELECT id FROM messages WHERE from_name = ? AND to_name = 'user' AND ts >= ? ORDER BY id DESC LIMIT 1").get(name, since)?.id,
+  /** Merge fields into a message's meta. */
+  addMeta: (id: number, fields: Record<string, unknown>) => {
+    const row = q<{ meta: string | null }>('SELECT meta FROM messages WHERE id = ?').get(id)
+    if (!row) return
+    let meta: Record<string, unknown> = {}
+    try {
+      meta = row.meta ? JSON.parse(row.meta) : {}
+    } catch {
+      // unreadable: replace it
+    }
+    q('UPDATE messages SET meta = ? WHERE id = ?').run(JSON.stringify({ ...meta, ...fields }), id)
+  },
   timeline: (opts: { before?: number; after?: number; limit?: number } = {}) => {
     const rows = q<Message>(
       `SELECT ${MSG_COLS} FROM messages m LEFT JOIN outbox o ON o.message_id = m.id

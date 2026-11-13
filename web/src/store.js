@@ -220,7 +220,7 @@ document.addEventListener('visibilitychange', tryReload)
 /** True while this tab is visible and showing that session's conversation. */
 export function isReading(name) {
   const r = route.value
-  return !document.hidden && r.view === 'session' && r.name === name && r.tab !== 'activity'
+  return !document.hidden && r.view === 'session' && r.name === name && r.tab !== 'activity' && r.tab !== 'changes'
 }
 
 export function markRead(name, id) {

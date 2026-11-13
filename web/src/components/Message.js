@@ -3,6 +3,17 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { html, clock, markdown, fmtBytes, fmtDuration } from '../lib.js'
 import { Icon } from '../icons.js'
 import { lightbox, retrySend, discardSend } from '../store.js'
+import { RecapLine } from './Changes.js'
+
+/** The turn recap the server attached to a reply, if any. */
+function recapOf(m) {
+  if (!m.meta) return null
+  try {
+    return (typeof m.meta === 'string' ? JSON.parse(m.meta) : m.meta).recap ?? null
+  } catch {
+    return null
+  }
+}
 
 const DELIVERY = { sending: 'sending', queued: 'waiting for connection', pending: 'queued', pushed: 'sent', acked: 'delivered', failed: 'not delivered' }
 
@@ -79,6 +90,7 @@ export function Message({ m, context, continued, onQuote }) {
       ${relay && html`<div class="route">${m.from_name} → ${m.to_name}</div>`}
       ${m.body && html`<div class="md" dangerouslySetInnerHTML=${{ __html: markdown(m.body) }}></div>`}
       <${Attachments} list=${m.attachments} />
+      ${recapOf(m) && html`<${RecapLine} recap=${recapOf(m)} session=${m.from_name} />`}
       ${m.delivery === 'failed' && pending && html`<div class="failed-row">
         <span>${m.error || 'Not sent.'}</span>
         <button class="btn sm" onClick=${() => retrySend(m.key)}>Retry</button>

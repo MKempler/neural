@@ -5,6 +5,7 @@ import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, a
 import { notify } from './push.ts'
 import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, summary } from './files.ts'
 import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName } from './spawner.ts'
+import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
 
@@ -114,6 +115,7 @@ export function handleHook(name: string, event: string, payload: any) {
 
   switch (event) {
     case 'SessionStart':
+      recapFrom.delete(name) // a new process: any turn the old one was in is over
       if (s.status === 'starting' && channels.has(name)) becomeReady(name)
       break
     case 'UserPromptSubmit': {
@@ -128,6 +130,7 @@ export function handleHook(name: string, event: string, payload: any) {
       turns.set(name, { startedAt: Date.now(), replied: false, forUser })
       setStatus(name, 'working')
       setDoing(name, 'Thinking')
+      startRecap(name)
       break
     }
     case 'Notification':
@@ -139,10 +142,12 @@ export function handleHook(name: string, event: string, payload: any) {
     case 'Stop':
       setDoing(name, null)
       onTurnEnd(name, payload)
+      void finishRecap(name)
       break
     case 'StopFailure':
       turnFailed(name, String(payload?.error?.message ?? payload?.error_message ?? payload?.message ?? payload?.error ?? 'The turn ended with an error'),
         String(payload?.error?.type ?? payload?.error_type ?? payload?.reason ?? ''))
+      void finishRecap(name) // work done before the failure still counts
       break
     case 'SessionEnd':
       // The user quit Claude in its terminal: treat that as a deliberate stop, not a crash to recover from.
@@ -296,6 +301,35 @@ export function resumeInterrupted(now = Date.now()) {
     sendMessage({ from: s.name, to: 'user', source: 'system', body: `**Usage limit reset.** Neural told ${s.name} to carry on with the task it was doing.` })
     return
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Turn recaps: what a turn changed in the session's repository ("2 commits · 5 files · +180 −42"), shown under
+// the turn's last reply so the user can see what was done without asking.
+
+const recapFrom = new Map<string, { since: string; snap: Promise<Snapshot | null> }>()
+
+function startRecap(name: string) {
+  // A prompt that arrives mid-turn continues the same piece of work: keep the earlier starting point.
+  if (recapFrom.has(name)) return
+  const s = sessions.get(name)
+  if (!s) return
+  recapFrom.set(name, { since: new Date().toISOString(), snap: snapshot(s.cwd).catch(() => null) })
+}
+
+async function finishRecap(name: string) {
+  const start = recapFrom.get(name)
+  recapFrom.delete(name)
+  if (!start) return
+  const snap = await start.snap
+  if (!snap) return
+  const r = await recap(snap).catch(() => null)
+  if (!r) return
+  events.add(name, 'turn-recap', r)
+  const id = messages.lastToUser(name, start.since)
+  if (!id) return
+  messages.addMeta(id, { recap: r })
+  broadcast({ type: 'message', message: messages.get(id) })
 }
 
 // ---------------------------------------------------------------------------------------------

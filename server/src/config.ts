@@ -14,13 +14,17 @@ fs.mkdirSync(path.join(dataDir, 'run'), { recursive: true, mode: 0o700 })
 
 function loadSecret(): string {
   const file = path.join(dataDir, 'secret')
+  let s = ''
   try {
-    return fs.readFileSync(file, 'utf8').trim()
+    s = fs.readFileSync(file, 'utf8').trim()
   } catch {
-    const s = crypto.randomBytes(32).toString('hex')
-    fs.writeFileSync(file, s + '\n', { mode: 0o600 })
-    return s
+    // not created yet
   }
+  // An empty or truncated file would make an empty (or guessable) secret, which `?secret=` would then match.
+  if (s.length >= 32) return s
+  s = crypto.randomBytes(32).toString('hex')
+  fs.writeFileSync(file, s + '\n', { mode: 0o600 })
+  return s
 }
 
 // Optional settings file in the data directory; environment variables take precedence.

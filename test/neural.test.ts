@@ -291,6 +291,10 @@ test('the live terminal shows the session and accepts typing', async () => {
   await new Promise(r => term.once('open', r))
   // By now the screen has scrolled; any of the lines the stand-in prints will do.
   await until('terminal output', () => /hub:|pasted|fake claude/.test(output))
+  // A swipe scrolls tmux back into its history; typing returns to the bottom and reaches Claude.
+  const inMode = () => execFileSync('tmux', ['-L', SOCKET, 'display', '-p', '-t', '=main:', '#{pane_in_mode}'], { encoding: 'utf8' }).trim()
+  term.send(JSON.stringify({ type: 'scroll', lines: 3 }))
+  await until('copy mode', () => inMode() === '1')
   for (const ch of 'typed in the browser') term.send(JSON.stringify({ type: 'input', data: ch }))
   term.send(JSON.stringify({ type: 'input', data: '\r' }))
   await messageWhere('reply to typed text', m => m.from_name === 'main' && m.body === 'pasted: typed in the browser')

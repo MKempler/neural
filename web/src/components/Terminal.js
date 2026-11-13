@@ -53,6 +53,12 @@ function Live({ name, conn, onFail }) {
   useEffect(() => {
     let term, fit, ws, observer
     let disposed = false
+    const el = host.current
+    const listeners = []
+    const listen = (type, fn, opts) => {
+      el.addEventListener(type, fn, opts)
+      listeners.push([type, fn, opts])
+    }
     ;(async () => {
       try {
         await loadScript('/vendor/@xterm/xterm/lib/xterm.js')
@@ -61,10 +67,14 @@ function Live({ name, conn, onFail }) {
         onFail()
         return
       }
-      if (disposed) return
       const css = getComputedStyle(document.documentElement)
+      const fontFamily = css.getPropertyValue('--mono').trim()
+      // xterm measures the character cell once. Measured with a fallback font before Plex Mono arrives, the rows
+      // come out shorter than they draw, and the bottom line (Claude Code's status footer) is cut off.
+      await document.fonts?.load(`12px ${fontFamily}`).catch(() => {})
+      if (disposed) return
       term = new window.Terminal({
-        fontFamily: css.getPropertyValue('--mono'),
+        fontFamily,
         fontSize: matchMedia('(max-width: 860px)').matches ? 11 : 12.5,
         lineHeight: 1.15,
         cursorBlink: true,
@@ -73,7 +83,7 @@ function Live({ name, conn, onFail }) {
       })
       fit = new window.FitAddon.FitAddon()
       term.loadAddon(fit)
-      term.open(host.current)
+      term.open(el)
       fit.fit()
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       ws = new WebSocket(`${proto}://${location.host}/term?name=${encodeURIComponent(name)}&cols=${term.cols}&rows=${term.rows}`)
@@ -84,12 +94,45 @@ function Live({ name, conn, onFail }) {
       term.onResize(({ cols, rows }) => send({ type: 'resize', cols, rows }))
       conn.current = { send: data => send({ type: 'input', data }) }
       observer = new ResizeObserver(() => fit.fit())
-      observer.observe(host.current)
+      observer.observe(el)
+
+      // Scrolling: the history lives in tmux, not in xterm (scrollback 0), so a swipe or the mouse wheel asks the
+      // server to scroll tmux's own view. Typing afterwards jumps back to the bottom.
+      const lineHeight = () => el.clientHeight / Math.max(1, term.rows)
+      let pending = 0
+      let queued = false
+      const scroll = lines => {
+        pending += lines
+        if (queued) return
+        queued = true
+        requestAnimationFrame(() => {
+          queued = false
+          const n = Math.trunc(pending)
+          pending -= n
+          if (n) send({ type: 'scroll', lines: n })
+        })
+      }
+      let lastY = null
+      listen('touchstart', e => (lastY = e.touches.length === 1 ? e.touches[0].clientY : null), { passive: true, capture: true })
+      listen('touchmove', e => {
+        if (lastY === null || e.touches.length !== 1) return
+        e.preventDefault()
+        const y = e.touches[0].clientY
+        scroll((y - lastY) / lineHeight()) // finger moving down shows earlier lines
+        lastY = y
+      }, { passive: false, capture: true })
+      listen('wheel', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        scroll(-(e.deltaMode === 1 ? e.deltaY : e.deltaY / lineHeight()))
+      }, { passive: false, capture: true })
+
       if (!matchMedia('(pointer: coarse)').matches) term.focus()
     })()
     return () => {
       disposed = true
       conn.current = null
+      for (const [type, fn, opts] of listeners) el.removeEventListener(type, fn, opts)
       observer?.disconnect()
       ws?.close()
       term?.dispose()

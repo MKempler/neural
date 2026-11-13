@@ -716,3 +716,22 @@ button.result:hover { background: var(--surface-2); }
 /* A turn that ended with an error (usage limit, API failure) */
 .msg.error .content { padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: var(--r-card); background: var(--warn-tint); }
 .msg.error .md { font-size: var(--fs-md); }
+
+/* Phone terminal */
+.term-live { touch-action: none; } /* swipes scroll tmux's history (Terminal.js), not the page */
+@media (max-width: 860px) {
+  /* The keys sit in one row that scrolls sideways, clear of the home indicator, instead of wrapping into two. */
+  .term-keys {
+    flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    padding-bottom: max(8px, var(--bottom-gap));
+  }
+  .term-keys::-webkit-scrollbar { display: none; }
+  .term-keys button { flex: none; height: 34px; min-width: 40px; font-size: 13px; }
+  .term-keys form { flex: 1 0 200px; }
+  .keyboard .term-keys { padding-bottom: 8px; }
+  /* iOS zooms the page into any text field under 16px when it gets focus: the hidden one xterm types through too. */
+  .term-keys input, .xterm .xterm-helper-textarea { font-size: 16px; }
+  .term-keys input { height: 34px; }
+  /* The strip below the page shows the terminal's colour while it is open. */
+  html:has(.terminal), html:has(.terminal) body { background: var(--term-bg); }
+}

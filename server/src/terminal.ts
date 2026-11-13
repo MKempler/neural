@@ -37,6 +37,19 @@ export function attach(ws: WebSocket, name: string, cols: number, rows: number) 
   })
   term.onExit(() => ws.close())
 
+  // Scrolling back: the browser keeps no scrollback, so a swipe scrolls tmux's own view (copy mode, which it
+  // leaves by itself on reaching the bottom). Typing leaves it first, so keys go to Claude, not to copy mode.
+  // Steps run one at a time, in order, so a key typed straight after a swipe can't overtake the scroll.
+  const target = `=${name}:`
+  const tmux = (args: string[]) => new Promise<void>(resolve => execFile('tmux', ['-L', config.tmuxSocket, ...args], () => resolve()))
+  let scrolled = false
+  let steps = Promise.resolve()
+  let waiting = 0
+  const step = (fn: () => unknown) => {
+    waiting++
+    steps = steps.then(fn).catch(() => {}).finally(() => void waiting--)
+  }
+
   ws.on('message', raw => {
     let msg: any
     try {
@@ -44,8 +57,22 @@ export function attach(ws: WebSocket, name: string, cols: number, rows: number) 
     } catch {
       return
     }
-    if (msg.type === 'input' && typeof msg.data === 'string') term.write(msg.data)
-    else if (msg.type === 'resize') term.resize(clamp(msg.cols, 20, 400), clamp(msg.rows, 5, 200))
+    if (msg.type === 'input' && typeof msg.data === 'string') {
+      if (!scrolled && !waiting) return term.write(msg.data)
+      step(async () => {
+        if (scrolled) await tmux(['send-keys', '-t', target, '-X', 'cancel'])
+        scrolled = false
+        term.write(msg.data)
+      })
+    } else if (msg.type === 'scroll' && Number.isFinite(msg.lines) && msg.lines) {
+      const n = String(Math.min(Math.abs(Math.trunc(msg.lines)), 500))
+      if (msg.lines > 0) {
+        step(() => tmux(['copy-mode', '-e', '-t', target, ';', 'send-keys', '-t', target, '-X', '-N', n, 'scroll-up']))
+        scrolled = true
+      } else if (scrolled) {
+        step(() => tmux(['send-keys', '-t', target, '-X', '-N', n, 'scroll-down']))
+      }
+    } else if (msg.type === 'resize') term.resize(clamp(msg.cols, 20, 400), clamp(msg.rows, 5, 200))
   })
 
   // Killing the pty detaches this client only; the session itself keeps running in tmux.

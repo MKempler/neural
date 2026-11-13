@@ -1,7 +1,9 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { ROOT, config } from './config.ts'
+import { db } from './db.ts'
 import { broadcast } from './live.ts'
 
 // Picks up code changes without anyone restarting anything:
@@ -33,12 +35,26 @@ function latestMtime(dir: string): string {
 }
 
 /** Load the changed server code in a throwaway process; only restart if that works. */
-function newCodeLoads(): Promise<string | null> {
+export function newCodeLoads(): Promise<string | null> {
+  // Loading the code runs any new migrations, so the trial gets a snapshot of the database, never the live one:
+  // if the new code turns out not to load, the running version must still find the schema it expects.
+  // A snapshot rather than an empty file, so a migration that fails on real data is caught here too.
+  const trialDb = path.join(os.tmpdir(), `neural-reload-${process.pid}-${Date.now()}.db`)
+  const cleanup = () => {
+    for (const f of [trialDb, `${trialDb}-wal`, `${trialDb}-shm`]) fs.rmSync(f, { force: true })
+  }
+  try {
+    db.prepare('VACUUM INTO ?').run(trialDb)
+  } catch (e: any) {
+    cleanup()
+    return Promise.resolve(`could not snapshot the database for the trial load: ${e?.message ?? e}`)
+  }
   return new Promise(resolve => {
     const probe = `await import(${JSON.stringify(path.join(ROOT, 'server/src/index.ts'))}); process.exit(0)`
     execFile(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', probe],
-      { env: { ...process.env, NEURAL_AUTOSTART: '0' }, timeout: 60_000 },
+      { env: { ...process.env, NEURAL_AUTOSTART: '0', NEURAL_DB: trialDb }, timeout: 60_000 },
       (err, _out, stderr) => {
+        cleanup()
         if (!err) return resolve(null)
         const lines = String(stderr).split('\n').map(l => l.trim()).filter(Boolean)
         const where = lines.find(l => l.startsWith('file://') || l.startsWith('/'))

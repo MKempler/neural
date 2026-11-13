@@ -327,6 +327,13 @@ test('push notifications go out for replies and approvals, unless a tab is in fr
   await idle('main')
 })
 
+test('the reload trial loads the code against a snapshot, not the live database', async () => {
+  const { newCodeLoads } = await import('../server/src/reload.ts')
+  const trials = () => fs.readdirSync(os.tmpdir()).filter(f => f.startsWith(`neural-reload-${process.pid}-`))
+  assert.equal(await newCodeLoads(), null)
+  assert.deepEqual(trials(), []) // the snapshot is removed afterwards
+})
+
 test('a backup is a complete, readable copy and old ones are rotated out', async () => {
   const { backupNow, listBackups } = await import('../server/src/backup.ts')
   const { DatabaseSync } = await import('node:sqlite')

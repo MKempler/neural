@@ -2,8 +2,16 @@
 // would, receives channel events, and reacts to a few keywords so tests can drive each delivery path.
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+
+// `claude agents --json`: Claude Code's list of running sessions, here whatever the test put in the file.
+if (process.argv[2] === 'agents') {
+  const file = process.env.NEURAL_TEST_AGENTS
+  process.stdout.write(file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '[]')
+  process.exit(0)
+}
 
 const argv = process.argv.slice(2)
 const arg = (flag: string) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined)
@@ -90,6 +98,12 @@ client.fallbackNotificationHandler = async (n: any) => {
   await hook('UserPromptSubmit', { prompt: `<channel source="neural" from="${from}" msg_id="${msg_id}">\n${body}\n</channel>` })
   if (body.startsWith('echo:')) return hook('Stop', { last_assistant_message: 'Noted.' }) // don't ping-pong between sessions
   if (body.startsWith('noreply')) return hook('Stop', { last_assistant_message: `terminal answer to ${msg_id}` })
+  if (body.startsWith('usage ')) {
+    // Run the status line the way Claude Code does, with a reading as JSON on stdin, and report what it printed.
+    const out = execFileSync('/bin/sh', ['-c', settings.statusLine.command], { input: body.slice(6) }).toString().trim()
+    await call('reply', { text: `status line: ${out}`, in_reply_to: msg_id })
+    return hook('Stop', { last_assistant_message: 'Replied.' })
+  }
   if (body.startsWith('perm')) {
     return client.notification({
       method: 'notifications/claude/channel/permission_request',

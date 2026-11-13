@@ -41,6 +41,7 @@ Object.assign(process.env, {
   NEURAL_RETRY_MS: '300',
   NEURAL_RECONCILE_MS: '300',
   NEURAL_RESUME_GRACE_MS: '300',
+  NEURAL_TEST_AGENTS: path.join(tmp, 'agents.json'),
   NEURAL_RESTART_BACKOFF_MS: '300',
 })
 
@@ -719,6 +720,52 @@ test('the changes view and turn recaps read the session\'s repository', async ()
   assert.equal((await get('/api/changes/repo-work')).changes.commits.length, 2)
   assert.equal((await api('GET', '/api/changes/repo-work/diff?ref=nope')).status, 400)
   await (await import('../server/src/spawner.ts')).removeSession('repo-work')
+})
+
+test('the status line feeds the usage and context meter', async () => {
+  await idle('main')
+  const reset = Math.floor(Date.now() / 1000) + 3600
+  const reading = {
+    context_window: { used_percentage: 41.4, context_window_size: 1_000_000 },
+    cost: { total_cost_usd: 1.234 },
+    rate_limits: { five_hour: { used_percentage: 62, resets_at: reset }, seven_day: { used_percentage: 41, resets_at: reset + 86400 } },
+  }
+  await say('main', `usage ${JSON.stringify(reading)}`)
+  const m = await messageWhere('the status line output', (m: any) => m.from_name === 'main' && m.body.startsWith('status line: '))
+  assert.match(m.body, /^status line: context 41% · 5-hour 62% \(resets \d\d:\d\d\) · week 41%$/)
+  assert.deepEqual((await get('/api/state')).usage.five_hour, { used: 62, resets_at: reset })
+  const ctx = (await session('main')).context
+  assert.deepEqual([ctx.used, ctx.size, ctx.cost], [41, 1_000_000, 1.234])
+  assert.ok(seen.some(e => e.type === 'usage' && e.account?.seven_day?.used === 41))
+  assert.ok(seen.some(e => e.type === 'usage' && e.session === 'main' && e.context.used === 41))
+  // A reading without limits (an API-key session, or before the first reply) keeps the last known ones.
+  const usage = await import('../server/src/usage.ts')
+  assert.match(usage.record('main', { context_window: { used_percentage: 50 } }), /^context 50% · 5-hour 62% \(resets .*\) · week 41%$/)
+  assert.equal((await get('/api/state')).usage.five_hour.used, 62)
+  assert.equal(usage.record('nobody', reading), '')
+  // A window past its reset time is left out of the terminal line.
+  assert.equal(usage.line(null, { five_hour: { used: 90, resets_at: 1 }, seven_day: null, at: '' }), '')
+  await idle('main')
+})
+
+test('a stuck "working" status is settled by what Claude Code reports, busy or idle', async () => {
+  const { settleIfIdle } = await import('../server/src/router.ts')
+  const agents = process.env.NEURAL_TEST_AGENTS!
+  await idle('main')
+  await say('main', 'slow turn')
+  await until('working', async () => (await session('main')).activity?.text === 'Running the test suite')
+  const id = (await session('main')).claude_session_id
+  const report = (status: string) => fs.writeFileSync(agents, JSON.stringify([{ pid: 1, cwd: tmp, kind: 'interactive', sessionId: id, name: 'main', status }]))
+  report('busy')
+  await settleIfIdle('main')
+  assert.equal((await session('main')).status, 'working')
+  await new Promise(r => setTimeout(r, 2100)) // past the cached answer
+  report('idle')
+  await settleIfIdle('main')
+  assert.equal((await session('main')).status, 'idle')
+  fs.rmSync(agents)
+  await api('POST', '/api/sessions/main/interrupt') // end the stand-in's turn too
+  await idle('main')
 })
 
 test('uploads over the size limit are refused', async () => {

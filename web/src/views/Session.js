@@ -7,6 +7,7 @@ import { Composer, DropZone } from '../components/Composer.js'
 import { Message, ActivityLine } from '../components/Message.js'
 import { Terminal } from '../components/Terminal.js'
 import { Changes, recapText } from '../components/Changes.js'
+import { ContextChip, LimitWarning } from '../components/Usage.js'
 import {
   sessions, threads, permissions, route, navigate, sessionPath, loadThread, loadOlder,
   sessionAction, removeSession, readLatest, pendingSends, sendNow, interrupt, switcherOpen, modelSheet,
@@ -65,6 +66,7 @@ export function Session() {
   const back = () => (history.length > 1 ? history.back() : navigate('/'))
   const chip = modelChip(s)
   const subtitle = tab === 'terminal' ? 'terminal' : tab === 'activity' ? 'activity log' : tab === 'changes' ? 'changes' : [chip, shortPath(s.cwd, 30)].filter(Boolean).join(' · ')
+  const ctx = s.context?.used != null && tab === 'chat' && html`<${ContextChip} s=${s} short=${true} /> · `
 
   return html`<section class="session">
     ${phone
@@ -72,7 +74,7 @@ export function Session() {
           <button class="btn ghost icon-only" aria-label="Back" onClick=${back}><${Icon} name="back" /></button>
           <button class="title-btn" onClick=${() => (switcherOpen.value = true)} aria-label=${`${name}, ${s.status}. Switch session`}>
             <span class="name"><${Dot} status=${s.status} />${name}</span>
-            <span class="sub">${subtitle}${!s.channel_connected && !down ? ' · channel down' : ''}</span>
+            <span class="sub">${ctx}${subtitle}${!s.channel_connected && !down ? ' · channel down' : ''}</span>
           </button>
           <button class=${`btn ghost icon-only ${tab === 'terminal' ? 'active' : ''}`} aria-label=${tab === 'terminal' ? 'Show conversation' : 'Show terminal'}
             aria-pressed=${tab === 'terminal'} onClick=${() => setTab(tab === 'terminal' ? 'chat' : 'terminal')}><${Icon} name="terminal" /></button>
@@ -84,7 +86,8 @@ export function Session() {
             <div class="meta">
               ${s.role === 'orchestrator' && html`<span>orchestrator</span>`}
               ${chip && html`<button class="model-chip" title="Change model or effort" onClick=${() => (modelSheet.value = name)}>${chip}</button>`}
-              <span title=${s.cwd}>${tilde(s.cwd)}</span>
+              <${ContextChip} s=${s} />
+              <span class="cwd" title=${s.cwd}>${tilde(s.cwd)}</span>
               ${!s.channel_connected && !down && html`<span>channel down</span>`}
             </div>
           </div>
@@ -220,6 +223,7 @@ function Conversation({ s }) {
     ${unseen > 0 && html`<button class="jump" onClick=${() => { stick.current = true; setUnseen(0); toBottom(true) }}>
       <${Icon} name="down" size=${14} />${unseen} new</button>`}
     <div class="composer-wrap">
+      <${LimitWarning} />
       <${Composer} placeholder=${`Message ${s.name}`} autofocus=${true} draftKey=${s.name} onSend=${send}
         onReady=${apiRef => (composer.current = apiRef)}
         stoppable=${s.status === 'working'} onStop=${() => interrupt(s.name).catch(e => alert(e.message))} />

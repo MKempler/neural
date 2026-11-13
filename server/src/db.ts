@@ -217,8 +217,20 @@ export const outbox = {
     q("UPDATE outbox SET state = 'failed', last_error = ? WHERE message_id = ?").run(error, id),
 }
 
+/** The status line's latest readings, as JSON: per session, and the account's under ''. */
+export const usage = {
+  get: <T>(name: string): T | null => {
+    const row = q<{ data: string }>('SELECT data FROM usage WHERE name = ?').get(name)
+    return row ? JSON.parse(row.data) : null
+  },
+  set: (name: string, data: unknown) =>
+    q(`INSERT INTO usage (name, data) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = ${NOW}`)
+      .run(name, JSON.stringify(data)),
+  remove: (name: string) => q('DELETE FROM usage WHERE name = ?').run(name),
+}
+
 export const events = {
-  add: (session: string | null, event: string, payload: unknown) =>
+  add:(session: string | null, event: string, payload: unknown) =>
     q('INSERT INTO events (session, event, payload) VALUES (?, ?, ?)').run(session, event, JSON.stringify(payload ?? null)),
   recent: (session: string, limit = 50) =>
     q<{ id: number; ts: string; event: string; payload: string }>('SELECT * FROM events WHERE session = ? ORDER BY id DESC LIMIT ?').all(session, limit),

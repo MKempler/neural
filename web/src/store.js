@@ -7,6 +7,8 @@ export const loaded = signal(false)
 export const user = signal({ name: '' })
 export const health = signal({})
 export const liveTerminal = signal(false)
+/** The account's usage limits from the status line: { five_hour, seven_day } windows, or null. */
+export const usage = signal(null)
 export const sessions = signal(/** @type {Record<string, any>} */ ({}))
 export const permissions = signal(/** @type {any[]} */ ([]))
 export const recent = signal(/** @type {any[]} */ ([])) // newest last, across all sessions
@@ -68,6 +70,7 @@ export async function loadState() {
     user.value = state.user ?? { name: '' }
     health.value = state.health ?? {}
     liveTerminal.value = Boolean(state.liveTerminal)
+    usage.value = state.usage ?? null
     sessions.value = Object.fromEntries(state.sessions.map(s => [s.name, s]))
     permissions.value = state.permissions
     recent.value = timeline
@@ -173,6 +176,10 @@ function handle(ev) {
       break
     case 'activity':
       patchSession(ev.session, { activity: ev.activity })
+      break
+    case 'usage':
+      if (ev.account) usage.value = ev.account
+      if (ev.session) patchSession(ev.session, { context: ev.context })
       break
     case 'version':
       noteVersion(ev.web)

@@ -18,6 +18,7 @@ import * as terminal from './terminal.ts'
 import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from './files.ts'
 import { backupNow, listBackups } from './backup.ts'
 import * as git from './git.ts'
+import * as usage from './usage.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
@@ -77,7 +78,7 @@ function checkBrowser(req: http.IncomingMessage) {
 }
 
 function withSummary(s: ReturnType<typeof sessions.all>[number]) {
-  return { ...s, last_message: reads.last(s.name), last_reply: reads.lastReply(s.name), unread: reads.unread(s.name), activity: doing.get(s.name) ?? null }
+  return { ...s, last_message: reads.last(s.name), last_reply: reads.lastReply(s.name), unread: reads.unread(s.name), activity: doing.get(s.name) ?? null, context: usage.context(s.name) }
 }
 
 /** First name for the greeting: config.json, then the Tailscale identity of the request, else nothing. */
@@ -121,6 +122,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         permissions: permissions.open(),
         liveTerminal: terminal.available,
         webVersion,
+        usage: usage.account(),
         health: {
           semantic: embeddingStatus(),
           lastBackup: listBackups().at(-1) ?? null,
@@ -280,7 +282,14 @@ const server = http.createServer(async (req, res) => {
       // Called by Claude Code itself, authenticated by the shared secret in the per-session settings file.
       if (!secretOk(url.searchParams.get('secret'))) throw new HttpError(403, 'bad secret')
       const payload = await readJson(req)
-      handleHook(url.searchParams.get('session') ?? '', url.pathname.slice('/hooks/'.length), payload)
+      const session = url.searchParams.get('session') ?? ''
+      const event = url.pathname.slice('/hooks/'.length)
+      // The status line (channel/statusline.sh) gets back the text to show in the terminal.
+      if (event === 'statusline') {
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(usage.record(session, payload))
+        return
+      }
+      handleHook(session, event, payload)
       res.writeHead(200).end()
       return
     }

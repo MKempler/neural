@@ -53,7 +53,8 @@ are trademarks of Anthropic.
 | ![A conversation: the orchestrator delegates to two sessions and summarises their findings](docs/screenshots/conversation.png) | ![The Cmd+K palette searching history for "currency"](docs/screenshots/search.png) |
 
 - **Home:** what needs you (approvals, stuck sessions, unread replies), a card per session with its state
-  and last message, recent activity across sessions, and a box to message `main`.
+  and last message, recent activity across sessions, and a box to message `main`. Bars show how much of
+  your 5-hour and weekly usage limits is used and when each resets.
 - **Session:** the conversation, the live terminal, the session's changes and an activity log of what it did.
   On a wide screen the conversation and terminal can sit side by side.
 - **Changes:** the branch and whether it's pushed, uncommitted files and recent commits, each with a diff that
@@ -68,6 +69,9 @@ are trademarks of Anthropic.
 - **Slash commands from the chat:** a message starting with `/` (`/model sonnet`, `/effort max`, `/compact`)
   runs in the session's terminal, as if typed into Claude Code. Start with `//` to send it to Claude as text.
 - **Model and effort** are shown on every session ("Fable 5.2 · high"); tap them to change.
+- **Context:** each session shows how full its context window is ("context 41%"), in amber from 80%, when
+  Claude Code is about to compact the conversation. When 90% of a usage limit is used, the composer says how
+  much is left and when it resets.
 
 ## How it works
 
@@ -190,6 +194,10 @@ which can run commands on your computer.
   time, you get a message and a notification, and messages you send wait instead of being retried against the
   limit. When the limit resets, a session whose turn was cut off is told to carry on with its task, one session
   a minute with `main` first, and you get a notification. Weekly limits are left for you to restart.
+- **The status line is Neural's.** Usage and context come from Claude Code's status line, so sessions started
+  by Neural use one that reports to the hub and shows "context 41% · 5-hour 62% (resets 20:20) · week 41%"
+  in the terminal. A status line you set up yourself (in your user or project settings) still shows instead.
+  The numbers appear after a session's first reply, and the limits only on a claude.ai plan.
 - **Transcripts are archived.** Neural copies every Claude Code transcript on the machine into its
   database, so they stay searchable after Claude Code's own cleanup.
 
@@ -249,12 +257,14 @@ server/src/router.ts      store-then-deliver, acknowledgements, fallbacks, sessi
 server/src/spawner.ts     launching sessions, startup prompts, crash recovery
 server/src/ingest.ts      transcript archive
 server/src/git.ts         a session's changes: branch, commits, diffs and turn recaps (read-only)
+server/src/usage.ts       usage limits and context, from each session's status line
 server/src/embed.ts       meaning-based search (local model + sqlite-vec)
 server/src/files.ts       attachments: storage, photo conversion, video stills
 server/src/push.ts        Web Push notifications
 server/src/terminal.ts    live terminal in the browser
 server/src/mux/           terminal multiplexer interface and the tmux backend
 channel/neural-channel.ts the channel MCP server Claude Code runs in each session
+channel/statusline.sh     the status line each session runs, which reports to the hub
 web/src, web/styles       the web app
 orchestrator/CLAUDE.md    instructions given to the orchestrator
 db/migrations/            database schema

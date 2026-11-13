@@ -1,8 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import os from 'node:os'
+import { execFile, execFileSync } from 'node:child_process'
 import { ROOT, config, hubUrl } from './config.ts'
-import { sessions, events, permissions, outbox, type Session } from './db.ts'
+import { sessions, events, permissions, outbox, usage, type Session } from './db.ts'
 import { channels, setStatus, sessionChanged, bus, turns, activity } from './live.ts'
 import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
@@ -63,10 +64,35 @@ function writeRunFiles(s: Session) {
       timeout: 5,
     }],
   })
-  const settings = { hooks: Object.fromEntries(HOOK_EVENTS.map(e => [e, [hook(e)]])) }
+  // The status line feeds the usage and context meter; a status line of the user's own still shows in the terminal.
+  const ownFile = path.join(config.runDir, `${s.name}.statusline.sh`)
+  const own = ownStatusLine(s.cwd)
+  if (own) fs.writeFileSync(ownFile, own + '\n', { mode: 0o600 })
+  else fs.rmSync(ownFile, { force: true })
+  const statusUrl = `${hubUrl}/hooks/statusline?session=${encodeURIComponent(s.name)}&secret=${config.secret}`
+  const settings = {
+    hooks: Object.fromEntries(HOOK_EVENTS.map(e => [e, [hook(e)]])),
+    statusLine: { type: 'command', command: ['/bin/sh', path.join(ROOT, 'channel/statusline.sh'), statusUrl, ownFile].map(shellQuote).join(' ') },
+  }
   fs.writeFileSync(mcpFile, JSON.stringify(mcp, null, 2), { mode: 0o600 })
   fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), { mode: 0o600 })
   return { mcpFile, settingsFile }
+}
+
+const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+
+/** The status line command the user set up for Claude Code (local project, project, then user settings), if any. */
+function ownStatusLine(cwd: string): string | null {
+  const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+  for (const file of [path.join(cwd, '.claude/settings.local.json'), path.join(cwd, '.claude/settings.json'), path.join(configDir, 'settings.json')]) {
+    try {
+      const line = JSON.parse(fs.readFileSync(file, 'utf8'))?.statusLine
+      if (line?.type === 'command' && typeof line.command === 'string' && line.command.trim()) return line.command
+    } catch {
+      // missing or unreadable: try the next
+    }
+  }
+  return null
 }
 
 export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
@@ -219,6 +245,45 @@ export async function restartSession(name: string) {
 export async function removeSession(name: string) {
   await mux.kill(name)
   sessions.remove(name)
+  usage.remove(name)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Claude Code's own list of running sessions (`claude agents --json`), each "busy" or "idle". Shared by the
+// sessions checked in one pass; null when it can't be had (an older Claude Code, or the test stand-in).
+
+export interface Agent { pid: number; cwd: string; kind: string; sessionId: string; name?: string; status: string }
+let agentsCache: { at: number; list: Promise<Agent[] | null> } | null = null
+
+export function claudeAgents(): Promise<Agent[] | null> {
+  if (agentsCache && Date.now() - agentsCache.at < 2000) return agentsCache.list
+  const list = new Promise<Agent[] | null>(resolve => {
+    let bin: string
+    try {
+      bin = resolveClaude()
+    } catch {
+      return resolve(null)
+    }
+    execFile(bin, ['agents', '--json'], { timeout: 10_000, maxBuffer: 4 * 2 ** 20 }, (err, out) => {
+      if (err) return resolve(null)
+      try {
+        const v = JSON.parse(String(out))
+        resolve(Array.isArray(v) ? v : null)
+      } catch {
+        resolve(null)
+      }
+    })
+  })
+  agentsCache = { at: Date.now(), list }
+  return list
+}
+
+/** Claude Code's entry for a session: by its conversation id, else by the name and folder Neural started it with. */
+export async function claudeAgent(s: Session): Promise<Agent | null> {
+  const list = await claudeAgents()
+  if (!list) return null
+  return list.find(a => s.claude_session_id && a.sessionId === s.claude_session_id)
+    ?? list.find(a => a.name === s.name && a.cwd === s.cwd) ?? null
 }
 
 /** Resolves with the status once the session reaches one of `until`, or rejects on timeout. */

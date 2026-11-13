@@ -4,6 +4,7 @@ import { html, ago, clock, plain, excerpt, shortPath, fmtNumber, modelChip } fro
 import { Icon } from '../icons.js'
 import { Composer, Dot, PermissionCard, StatusPill, Link } from '../components/parts.js'
 import { NotifySetup } from '../push.js'
+import { UsageMeter, ContextChip } from '../components/Usage.js'
 import {
   user, sessions, sessionList, permissions, recent, health, orchestrator, newSessionOpen,
   navigate, send, sessionPath, sessionAction, totalUnread,
@@ -22,6 +23,7 @@ export function Home() {
     <header class="greeting">
       <h1>${name ? `Welcome back, ${name}` : 'Welcome back'}</h1>
       <${StatusLine} needs=${needs} />
+      <${UsageMeter} />
     </header>
 
     ${main && html`<${Composer} variant="quick" draftKey="home" placeholder=${`Message ${main.name}…`}
@@ -103,6 +105,7 @@ export function SessionCard({ s }) {
     <div class="card-meta">
       ${s.role === 'orchestrator' && html`<span class="tag accent">orchestrator</span>`}
       ${modelChip(s) && html`<span class="tag">${modelChip(s)}</span>`}
+      ${s.context?.used >= 80 && html`<span class="tag warn"><${ContextChip} s=${s} /></span>`}
       <span class="cwd" title=${s.cwd}>${shortPath(s.cwd)}</span>
     </div>
     <p class="card-excerpt">${m ? html`${from && html`<span class="from">${from}: </span>`}${excerpt(m)}` : html`<span class="muted">No messages yet</span>`}</p>

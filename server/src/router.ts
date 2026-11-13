@@ -333,24 +333,35 @@ async function finishRecap(name: string) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Is a turn really running? Claude Code's footer says "esc to interrupt" only while it is. Used when a
-// session has been silent for a while, and after Stop, so a status can't stay stuck on "working".
+// Is a turn really running? Used when a session has been silent for a while, and after Esc, so a status can't
+// stay stuck on "working". Claude Code's own session list says busy or idle; without it, the terminal is read.
 
 export async function settleIfIdle(name: string) {
   const s = sessions.get(name)
   if (!s || s.status !== 'working') return
+  const { claudeAgent } = await import('./spawner.ts')
+  const agent = await claudeAgent(s)
+  if (agent) {
+    if (agent.status !== 'idle') return
+  } else if (!(await screenIdle(name))) return
+  if (sessions.get(name)?.status !== 'working') return // a hook moved it on meanwhile
+  events.add(name, 'settled', { reason: 'no turn running', via: agent ? 'claude agents' : 'screen' })
+  setDoing(name, null)
+  turns.delete(name)
+  setStatus(name, 'idle')
+}
+
+/** The terminal shows no turn running: the full footer is there (a phone-width view can cut it off), with
+ *  neither "esc to interrupt" nor the spinner's elapsed time ("· Whirlpooling… (5s · ↓ 14 tokens)").
+ *  A status line replaces the "esc to interrupt" hint, so the spinner is the sign that counts. */
+async function screenIdle(name: string) {
   let screen = ''
   try {
     screen = await mux.capture(name)
   } catch {
-    return
+    return false
   }
-  // Only decide when the full footer is on screen (a phone-width terminal view can cut it off).
-  if (!/shift\+tab to cycle/i.test(screen) || /esc to interrupt/i.test(screen)) return
-  events.add(name, 'settled', { reason: 'no turn running' })
-  setDoing(name, null)
-  turns.delete(name)
-  setStatus(name, 'idle')
+  return /shift\+tab to cycle/i.test(screen) && !/esc to interrupt/i.test(screen) && !/…\s*\(\d+[hms]/.test(screen)
 }
 
 const base = (p: unknown) => String(p ?? '').split('/').filter(Boolean).pop() ?? ''

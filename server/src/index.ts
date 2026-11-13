@@ -87,11 +87,15 @@ function displayName(req: http.IncomingMessage): string {
 }
 
 async function readJson(req: http.IncomingMessage): Promise<any> {
-  let body = ''
+  // Decoded once at the end: decoding chunk by chunk garbles a character split across two chunks.
+  const chunks: Buffer[] = []
+  let bytes = 0
   for await (const chunk of req) {
-    body += chunk
-    if (body.length > 4 << 20) throw new HttpError(413, 'body too large')
+    bytes += chunk.length
+    if (bytes > 4 << 20) throw new HttpError(413, 'body too large')
+    chunks.push(chunk)
   }
+  const body = Buffer.concat(chunks).toString('utf8')
   if (!body) return {}
   try {
     return JSON.parse(body)

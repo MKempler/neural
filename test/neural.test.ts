@@ -118,6 +118,25 @@ test('a UI message is pushed through the channel, answered, and acknowledged', a
   await idle('main')
 })
 
+test('a request body with a character split across chunks arrives intact', async () => {
+  const secret = fs.readFileSync(path.join(tmp, 'secret'), 'utf8').trim()
+  const body = Buffer.from(JSON.stringify({ message: 'split 🎉 café' }))
+  const cut = body.indexOf(Buffer.from('🎉')) + 2 // inside the emoji's four bytes
+  const status = await new Promise<number>((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: `/hooks/Notification?session=main&secret=${secret}`,
+      headers: { 'content-type': 'application/json', 'content-length': body.length } }, res => {
+      res.resume()
+      resolve(res.statusCode ?? 0)
+    }).on('error', reject)
+    req.write(body.subarray(0, cut))
+    setTimeout(() => req.end(body.subarray(cut)), 50)
+  })
+  assert.equal(status, 200)
+  const events = await get('/api/events/main')
+  const hook = events.find((e: any) => e.event === 'hook:Notification' && e.payload.includes('split'))
+  assert.equal(JSON.parse(hook.payload).message, 'split 🎉 café')
+})
+
 test('an answer given without the reply tool still reaches the user', async () => {
   const sent = await say('main', 'noreply please')
   const net = await messageWhere('stop-hook message', m => m.source === 'stop_hook' && m.body === `terminal answer to ${sent.id}`)

@@ -108,6 +108,7 @@ export async function startSession(
   // The channel server negotiates the earlier MCP handshake; newer revisions do not register channels.
   const env = { MCP_PROTOCOL_NEGOTIATION: 'legacy' }
   await mux.spawn(name, cwd, launchArgv(s, { resume: opts.resume }), env)
+  spawnedAt.set(name, Date.now())
   events.add(name, 'spawn', { resume: Boolean(opts.resume && s.claude_session_id) })
   sessionChanged(name)
   void passStartupDialogs(name)
@@ -254,7 +255,8 @@ export async function reconcile() {
     if (!s || s.status === 'stopped') continue
     if (alive) {
       // Ten minutes up since the last (re)start: it's healthy again, so later crashes get the full retry budget.
-      if (s.restarts && s.channel_connected && Date.now() - Date.parse(s.updated_at) > 10 * 60_000) markHealthy(s.name)
+      // (Timed from the spawn, not updated_at, which every status change moves, so a busy session never got there.)
+      if (s.restarts && s.channel_connected) markHealthy(s.name)
       // Past the usage limit's reset time: ready again.
       if (s.status === 'limited') {
         const at = (await import('./router.ts')).resetTime(s.status_detail ?? '', Date.parse(s.updated_at))
@@ -292,10 +294,17 @@ export async function reconcile() {
   }
 }
 
-/** A session that has stayed up is healthy again, so later crashes get the full retry budget. */
+/** When each session's current process was started (since this hub started), to tell a stable session from a crash loop. */
+const spawnedAt = new Map<string, number>()
+const HEALTHY_AFTER = 10 * 60_000
+
+/** A session that has stayed up is healthy again, so later crashes get the full retry budget. One that finishes
+ *  a turn and then crashes straight away is not: its restarts keep counting toward the limit. */
 export function markHealthy(name: string) {
   const s = sessions.get(name)
-  if (s && s.restarts) sessions.update(name, { restarts: 0 })
+  if (!s?.restarts) return
+  if (Date.now() - (spawnedAt.get(name) ?? 0) < HEALTHY_AFTER) return
+  sessions.update(name, { restarts: 0 })
 }
 
 function tail(screen: string, lines = 12) {

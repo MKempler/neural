@@ -19,6 +19,7 @@ import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from
 import { backupNow, listBackups } from './backup.ts'
 import * as git from './git.ts'
 import * as usage from './usage.ts'
+import * as projects from './projects.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
@@ -184,6 +185,15 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       return { screen: await mux.capture(name, num(url.searchParams.get('history')) ?? 0).catch(() => '') }
     case 'GET events':
       return events.recent(name)
+    case 'GET projects':
+      // Folders in the projects folder for the New session sheet; /github lists repositories to clone.
+      if (name === 'github') return { repos: await projects.repos() }
+      return { ...projects.folders(), github: await projects.github() }
+    case 'POST projects': {
+      const body = await readJson(req)
+      if (name === 'clone') return projects.clone(String(body.repo ?? ''))
+      return projects.create(String(body.name ?? ''), { github: body.github === true })
+    }
     case 'GET prefs':
       if (name === 'suggestions') return { replies: frequentReplies() }
       throw new HttpError(404, 'not found')

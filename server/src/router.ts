@@ -4,7 +4,8 @@ import { searchAll } from './embed.ts'
 import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
 import { notify } from './push.ts'
 import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, summary } from './files.ts'
-import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName } from './spawner.ts'
+import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName, claudeAgent } from './spawner.ts'
+import * as projects from './projects.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -339,7 +340,6 @@ async function finishRecap(name: string) {
 export async function settleIfIdle(name: string) {
   const s = sessions.get(name)
   if (!s || s.status !== 'working') return
-  const { claudeAgent } = await import('./spawner.ts')
   const agent = await claudeAgent(s)
   if (agent) {
     if (agent.status !== 'idle') return
@@ -552,9 +552,14 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
     case 'spawn_session': {
       if (!validName(String(a.name))) throw new Error('name must be lowercase letters, digits, - or _ (up to 32 characters)')
       if (sessions.get(a.name) && (await mux.alive(a.name))) throw new Error(`"${a.name}" is already running`)
-      await startSession(a.name, { cwd: a.cwd, role: 'worker' })
+      // A new project or a clone gets its folder in the projects folder first.
+      let cwd = a.cwd
+      if (a.clone) cwd = (await projects.clone(String(a.clone))).path
+      else if (a.new_project) cwd = (await projects.create(String(a.name), { github: a.github_repo === true })).path
+      if (!cwd) throw new Error('cwd is required (or new_project, or clone)')
+      await startSession(a.name, { cwd, role: 'worker' })
       if (a.initial_prompt) sendMessage({ from: caller, to: a.name, body: a.initial_prompt, source: 'send_message' })
-      return { started: a.name, note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
+      return { started: a.name, cwd, note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
     }
     case 'stop_session':
       if (a.name === caller) throw new Error('refusing to stop yourself')

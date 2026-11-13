@@ -42,6 +42,7 @@ Object.assign(process.env, {
   NEURAL_RECONCILE_MS: '300',
   NEURAL_RESUME_GRACE_MS: '300',
   NEURAL_TEST_AGENTS: path.join(tmp, 'agents.json'),
+  NEURAL_PROJECTS_ROOT: path.join(tmp, 'projects'),
   NEURAL_RESTART_BACKOFF_MS: '300',
 })
 
@@ -780,6 +781,34 @@ test('quick replies are shared by every device, and suggested from what the user
   for (const body of ['go ahead', 'Go ahead.', 'go ahead!']) messages.insert({ from: 'user', to: 'main', body, source: 'ui' })
   const { replies } = await get('/api/prefs/suggestions')
   assert.ok(replies.some((r: any) => /^go ahead/i.test(r.body) && r.n >= 3))
+})
+
+test('new projects are created in the projects folder, from the app and by the orchestrator', async () => {
+  const root = path.join(tmp, 'projects')
+  assert.deepEqual((await get('/api/projects')).folders, [])
+  const made = await api('POST', '/api/projects', { name: 'alpha' })
+  assert.equal(made.body.path, path.join(root, 'alpha'))
+  assert.ok(fs.existsSync(path.join(root, 'alpha/.git')))
+  fs.mkdirSync(path.join(root, 'plain'))
+  const { folders } = await get('/api/projects')
+  assert.deepEqual(folders.map((f: any) => [f.name, f.git, f.branch]).sort(), [['alpha', true, 'main'], ['plain', false, null]])
+  // Never outside the projects folder, never over an existing folder.
+  assert.match((await api('POST', '/api/projects', { name: 'alpha' })).body.error, /already exists/)
+  for (const name of ['../evil', 'Up', '', '.hidden', 'a/b']) assert.equal((await api('POST', '/api/projects', { name })).status, 400, name)
+  for (const repo of ['nope', '../x/y', 'a/b/c', 'owner/..']) assert.equal((await api('POST', '/api/projects/clone', { repo })).status, 400, repo)
+  assert.ok(!fs.existsSync(path.join(tmp, 'evil')))
+  const { sessionName } = await import('../server/src/projects.ts')
+  assert.equal(sessionName('My.Cool_Project'), 'my-cool_project')
+
+  // The orchestrator starts a session in a new project.
+  await idle('main')
+  await say('main', 'tool spawn_session {"name":"beta","new_project":true}')
+  const started = await messageWhere('spawned', (m: any) => m.from_name === 'main' && /"started":\s*"beta"/.test(m.body))
+  assert.ok(started.body.includes(path.join(root, 'beta')), started.body)
+  assert.equal((await session('beta')).cwd, path.join(root, 'beta'))
+  assert.ok(fs.existsSync(path.join(root, 'beta/.git')))
+  await (await import('../server/src/spawner.ts')).removeSession('beta')
+  await idle('main')
 })
 
 test('uploads over the size limit are refused', async () => {

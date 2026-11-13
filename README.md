@@ -68,6 +68,9 @@ are trademarks of Anthropic.
   - quick replies above the message box when a session is waiting for you ("Continue", "Go ahead", "Push
     when tests pass"): tap to send, hold to edit first. Edit the list with the pencil; it suggests what you
     often send, and it's the same on every device. Home's unread cards have them too.
+- **New session in two taps:** pick a folder from `~/Projects` (with its branch and the sessions already in
+  it), start a new project there (a folder with git, and a private GitHub repository if you tick the box), or
+  clone one of your GitHub repositories. `main` can do the same: "start a new project called recipes".
 - **Timeline** of every message, **Search** across all history, and a **⌘K** palette to jump anywhere.
 - **Slash commands from the chat:** a message starting with `/` (`/model sonnet`, `/effort max`, `/compact`)
   runs in the session's terminal, as if typed into Claude Code. Start with `//` to send it to Claude as text.
@@ -214,6 +217,7 @@ Everything is optional. Environment variables override `~/.local/share/neural/co
 | `NEURAL_PORT` | `7777` | Port for the web app and API |
 | `NEURAL_DATA_DIR` | `~/.local/share/neural` | Database, uploads, backups and per-session files |
 | `NEURAL_ORCHESTRATOR_CWD` | `<data dir>/orchestrator` | Working folder of `main` |
+| `NEURAL_PROJECTS_ROOT` | `~/Projects` | Where new projects are created and cloned, and whose folders New session lists (or `"projectsRoot"` in `config.json`) |
 | `NEURAL_CLAUDE_BIN` | `claude` | Path to the Claude Code binary |
 | `NEURAL_DISPLAY_NAME` | from `config.json` | Name in the greeting |
 | `NEURAL_ALLOWED_LOGINS` | from `config.json` | Comma-separated Tailscale logins allowed to use the app |
@@ -261,6 +265,7 @@ server/src/spawner.ts     launching sessions, startup prompts, crash recovery
 server/src/ingest.ts      transcript archive
 server/src/git.ts         a session's changes: branch, commits, diffs and turn recaps (read-only)
 server/src/usage.ts       usage limits and context, from each session's status line
+server/src/projects.ts    project folders: list, create (git, GitHub) and clone
 server/src/embed.ts       meaning-based search (local model + sqlite-vec)
 server/src/files.ts       attachments: storage, photo conversion, video stills
 server/src/push.ts        Web Push notifications

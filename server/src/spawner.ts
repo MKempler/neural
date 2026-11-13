@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { execFile, execFileSync } from 'node:child_process'
-import { ROOT, config, hubUrl } from './config.ts'
+import { execFile } from 'node:child_process'
+import { ROOT, config, hubUrl, findBin } from './config.ts'
 import { sessions, events, permissions, outbox, usage, type Session } from './db.ts'
 import { channels, setStatus, sessionChanged, bus, turns, activity } from './live.ts'
 import { Tmux } from './mux/tmux.ts'
@@ -23,18 +23,9 @@ export function validName(name: string) {
 
 let claudePath: string | undefined
 function resolveClaude(): string {
-  if (claudePath) return claudePath
-  if (path.isAbsolute(config.claudeBin)) return (claudePath = config.claudeBin)
-  // launchd starts the hub with a minimal PATH, so ask a login shell where claude lives.
-  for (const cmd of [['/usr/bin/which', [config.claudeBin]], ['/bin/zsh', ['-lc', `command -v ${config.claudeBin}`]]] as const) {
-    try {
-      const out = execFileSync(cmd[0], cmd[1] as string[], { encoding: 'utf8' }).trim().split('\n').pop()
-      if (out && path.isAbsolute(out)) return (claudePath = out)
-    } catch {
-      // try the next way
-    }
-  }
-  throw new Error(`cannot find the claude binary (${config.claudeBin}); set NEURAL_CLAUDE_BIN to its full path`)
+  claudePath ??= findBin(config.claudeBin) ?? undefined
+  if (!claudePath) throw new Error(`cannot find the claude binary (${config.claudeBin}); set NEURAL_CLAUDE_BIN to its full path`)
+  return claudePath
 }
 
 // Per-session config files: the hub's MCP server and hooks are passed on the command line,

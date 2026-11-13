@@ -224,66 +224,139 @@ export function NewSession() {
   return html`<${NewSessionBody} />`
 }
 
+const MODES = [['folder', 'Folder'], ['new', 'New project'], ['github', 'From GitHub']]
+/** A session name from a folder name: "My.Project" → "my-project" (mirrors the server). */
+const nameFrom = folder => folder.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|-+$/g, '').slice(0, 32)
+
 function NewSessionBody() {
   const close = () => (newSessionOpen.value = false)
+  const [mode, setMode] = useState(local.get('neural.newMode', 'folder'))
   const [name, setName] = useState('')
-  const [cwd, setCwd] = useState(local.get('neural.lastCwd', ''))
+  const [named, setNamed] = useState(false) // typed by hand, so choosing a folder doesn't overwrite it
+  const [cwd, setCwd] = useState('')
+  const [repo, setRepo] = useState(null)
+  const [github, setGithub] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const first = useRef(null)
+  const [busy, setBusy] = useState('')
+  const [projects, setProjects] = useState(null)
+  const [repos, setRepos] = useState(null)
+  const [filter, setFilter] = useState('')
   const promptRef = useAutosize(prompt)
-  useEffect(() => first.current?.focus(), [])
 
-  // Suggest folders already in use, and their parents.
+  useEffect(() => {
+    api('GET', '/api/projects').then(setProjects, e => setProjects({ root: '', folders: [], github: false, error: e.message }))
+  }, [])
+  useEffect(() => {
+    local.set('neural.newMode', mode)
+    setError('')
+    if (mode === 'github' && !repos) api('GET', '/api/projects/github').then(r => setRepos(r.repos), e => setRepos({ error: e.message }))
+  }, [mode])
+
+  const suggest = n => !named && setName(nameFrom(n))
+  const pickFolder = f => {
+    setCwd(f.path)
+    suggest(f.name)
+  }
+  const pickRepo = r => {
+    setRepo(r)
+    suggest(r.name)
+  }
+
+  // Folders other sessions use outside the projects folder, for typing a path by hand.
   const dirs = useMemo(() => {
     const set = new Set()
-    for (const s of sessionList.value) {
-      if (s.role === 'orchestrator') continue
-      set.add(s.cwd)
-      set.add(s.cwd.replace(/\/[^/]+$/, ''))
-    }
-    return [...set].filter(Boolean).sort()
+    for (const s of sessionList.value) if (s.role !== 'orchestrator') set.add(s.cwd)
+    return [...set].sort()
   }, [])
 
+  const ready = name.trim() && (mode === 'folder' ? cwd.trim() : mode === 'github' ? repo : true)
   const submit = async e => {
     e.preventDefault()
-    setBusy(true)
+    if (!ready || busy) return
     setError('')
     try {
-      const s = await createSession({ name: name.trim(), cwd: cwd.trim(), prompt: prompt.trim() || undefined })
+      let dir = cwd.trim()
+      if (mode === 'new') {
+        setBusy(github ? 'Creating the project and its GitHub repository…' : 'Creating the project…')
+        dir = (await api('POST', '/api/projects', { name: name.trim(), github })).path
+      } else if (mode === 'github') {
+        setBusy(`Cloning ${repo.nameWithOwner}…`)
+        dir = (await api('POST', '/api/projects/clone', { repo: repo.nameWithOwner })).path
+      }
+      setBusy('Starting…')
+      const s = await createSession({ name: name.trim(), cwd: dir, prompt: prompt.trim() || undefined })
       close()
       navigate(sessionPath(s.name))
     } catch (err) {
       setError(err.message)
-      setBusy(false)
+      setBusy('')
     }
   }
 
+  const root = projects?.root ? shortPath(projects.root) : '~/Projects'
+  const q = filter.trim().toLowerCase()
+  const shownRepos = Array.isArray(repos) ? repos.filter(r => !q || r.nameWithOwner.toLowerCase().includes(q) || (r.description ?? '').toLowerCase().includes(q)) : []
+
   return html`<${Overlay} onClose=${close} label="New session">
-    <form class="sheet" onSubmit=${submit}>
+    <form class="sheet new-session" onSubmit=${submit}>
       <div class="sheet-head"><h2>New session</h2>
         <button type="button" class="btn ghost icon-only" aria-label="Close" onClick=${close}><${Icon} name="x" /></button></div>
       <div class="sheet-body">
-        <label class="field"><span>Name</span>
-          <input ref=${first} class="input mono" value=${name} required pattern="[a-z0-9][a-z0-9_\\-]{0,31}" placeholder="api"
-            autocapitalize="off" autocomplete="off" spellcheck="false" onInput=${e => setName(e.currentTarget.value.toLowerCase())} />
-          <span class="hint">Lowercase letters, digits, - and _. Other sessions use this name to reach it.</span>
-        </label>
-        <label class="field"><span>Folder</span>
-          <input class="input mono" value=${cwd} required list="neural-dirs" placeholder="/Users/you/Projects/api"
+        <div class="seg" role="tablist">
+          ${MODES.map(([id, label]) => html`<button type="button" role="tab" aria-selected=${mode === id} class=${`seg-btn ${mode === id ? 'on' : ''}`}
+            onClick=${() => setMode(id)}>${label}</button>`)}
+        </div>
+
+        ${mode === 'folder' && html`<div class="field"><span>Work in</span>
+          ${projects === null ? html`<div class="quiet">Loading…</div>` : html`<div class="pick-list" role="listbox" aria-label="Project folders">
+            ${projects.folders.map(f => html`<button type="button" role="option" key=${f.path} aria-selected=${cwd === f.path}
+              class=${`pick ${cwd === f.path ? 'on' : ''}`} onClick=${() => pickFolder(f)}>
+              <span class="pick-name mono">${f.name}</span>
+              <span class="pick-meta">${f.git ? html`<${Icon} name="branch" size=${12} />${f.branch ?? 'git'}` : 'no git'}${f.sessions.length ? ` · ${f.sessions.join(', ')}` : ''} · ${ago(f.modified)}</span>
+            </button>`)}
+            ${!projects.folders.length && html`<div class="quiet">No folders in ${root} yet. Start a new project, or type a folder below.</div>`}
+          </div>`}
+          <input class="input mono" value=${cwd} list="neural-dirs" placeholder="or type a folder: /Users/you/code/api" aria-label="Folder"
             autocapitalize="off" autocomplete="off" spellcheck="false" onInput=${e => setCwd(e.currentTarget.value)} />
           <datalist id="neural-dirs">${dirs.map(d => html`<option value=${d} />`)}</datalist>
+        </div>`}
+
+        ${mode === 'new' && html`<p class="hint">Creates <span class="mono">${root}/${name.trim() || 'name'}</span> with git, and starts a session there.</p>
+          ${projects?.github
+            ? html`<label class="check"><input type="checkbox" checked=${github} onChange=${e => setGithub(e.currentTarget.checked)} />
+                Also create a private GitHub repository</label>`
+            : projects && html`<p class="hint">Sign in to the GitHub CLI on the Mac (<span class="mono">gh auth login</span>) to create a GitHub repository too.</p>`}`}
+
+        ${mode === 'github' && html`<div class="field"><span>Repository</span>
+          ${repos === null ? html`<div class="quiet">Loading your repositories…</div>`
+            : repos.error ? html`<div class="error">${repos.error}</div>`
+            : html`<input class="input" placeholder="Filter" value=${filter} onInput=${e => setFilter(e.currentTarget.value)} autocapitalize="off" spellcheck="false" />
+              <div class="pick-list" role="listbox" aria-label="GitHub repositories">
+                ${shownRepos.map(r => html`<button type="button" role="option" key=${r.nameWithOwner} disabled=${r.cloned}
+                  aria-selected=${repo?.nameWithOwner === r.nameWithOwner} class=${`pick ${repo?.nameWithOwner === r.nameWithOwner ? 'on' : ''}`} onClick=${() => pickRepo(r)}>
+                  <span class="pick-name mono">${r.nameWithOwner}</span>
+                  <span class="pick-meta">${r.cloned ? `already in ${root}` : [r.isPrivate ? 'private' : 'public', ago(r.updatedAt), r.description].filter(Boolean).join(' · ')}</span>
+                </button>`)}
+                ${!shownRepos.length && html`<div class="quiet">No repositories match.</div>`}
+              </div>
+              <p class="hint">Clones into <span class="mono">${root}</span>. Already cloned? Pick it under Folder.</p>`}
+        </div>`}
+
+        <label class="field"><span>Session name</span>
+          <input class="input mono" value=${name} required pattern="[a-z0-9][a-z0-9_\\-]{0,31}" placeholder="api"
+            autocapitalize="off" autocomplete="off" spellcheck="false" onInput=${e => { setName(e.currentTarget.value.toLowerCase()); setNamed(Boolean(e.currentTarget.value)) }} />
+          <span class="hint">${mode === 'new' ? 'Also the folder name. ' : ''}Lowercase letters, digits, - and _. Other sessions use this name to reach it.</span>
         </label>
         <label class="field"><span>First message (optional)</span>
-          <textarea ref=${promptRef} class="input" rows="3" value=${prompt} onInput=${e => setPrompt(e.currentTarget.value)}
+          <textarea ref=${promptRef} class="input" rows="2" value=${prompt} onInput=${e => setPrompt(e.currentTarget.value)}
             placeholder="What should it work on?"></textarea>
         </label>
         ${error && html`<div class="error">${error}</div>`}
       </div>
       <div class="sheet-foot">
         <button type="button" class="btn ghost" onClick=${close}>Cancel</button>
-        <button class="btn primary" disabled=${busy}>${busy ? 'Starting…' : 'Start session'}</button>
+        <button class="btn primary" disabled=${!ready || Boolean(busy)}>${busy || (mode === 'new' ? 'Create and start' : mode === 'github' ? 'Clone and start' : 'Start session')}</button>
       </div>
     </form>
   </${Overlay}>`

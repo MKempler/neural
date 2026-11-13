@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -28,7 +29,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -61,6 +62,8 @@ export const config = {
   // Start (or resume) autostart sessions when the hub boots.
   autostart: env('AUTOSTART') !== '0',
   orchestratorCwd: env('ORCHESTRATOR_CWD') ?? path.join(dataDir, 'orchestrator'),
+  // Where new projects are created and cloned, and whose folders the New session sheet lists.
+  projectsRoot: (env('PROJECTS_ROOT') ?? file.projectsRoot ?? '~/Projects').replace(/^~(?=\/|$)/, os.homedir()),
   // Seconds to wait for evidence that a pushed message was read before falling back to a paste.
   ackTimeoutSec: Number(env('ACK_TIMEOUT') ?? 90),
   // Tell a session cut off by a usage limit to carry on once the limit resets. The grace period gives Claude Code's
@@ -91,6 +94,20 @@ export const config = {
   // Where Claude Code keeps its transcripts, and how often to archive what was appended.
   transcriptsDir: env('TRANSCRIPTS_DIR') ?? path.join(os.homedir(), '.claude/projects'),
   ingestMs: Number(env('INGEST_MS') ?? 5_000),
+}
+
+/** The full path of a program. launchd starts the hub with a minimal PATH, so a login shell is asked too. */
+export function findBin(bin: string): string | null {
+  if (path.isAbsolute(bin)) return bin
+  for (const [cmd, args] of [['/usr/bin/which', [bin]], ['/bin/zsh', ['-lc', `command -v ${bin}`]]] as const) {
+    try {
+      const out = execFileSync(cmd, args as string[], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().split('\n').pop()
+      if (out && path.isAbsolute(out)) return out
+    } catch {
+      // try the next way
+    }
+  }
+  return null
 }
 
 export const hubUrl = `http://${config.host}:${config.port}`

@@ -49,11 +49,14 @@ const TOOLS = [
 ]
 
 const ORCHESTRATOR_TOOLS = [
-  tool('spawn_session', 'Start a new Claude Code session in its own terminal. It is ready a few seconds later; messages sent before then are queued.', {
+  tool('spawn_session', 'Start a new Claude Code session in its own terminal. It is ready a few seconds later; messages sent before then are queued. Give cwd for an existing folder; or new_project to create a new project folder (with git) named after the session in the projects folder; or clone to clone a GitHub repository there first.', {
     name: str('Short unique name: lowercase letters, digits, - or _'),
-    cwd: str('Absolute path of the directory it works in'),
+    cwd: str('Absolute path of the directory it works in (an existing folder)'),
+    new_project: { type: 'boolean', description: 'Create a new project folder named after the session, with git, in the projects folder (~/Projects unless configured), and work there' },
+    github_repo: { type: 'boolean', description: 'With new_project: also create a private GitHub repository for it as origin. Only when the user asked for one' },
+    clone: str('owner/name of a GitHub repository to clone into the projects folder and work in'),
     initial_prompt: str('First message to send it'),
-  }, ['name', 'cwd']),
+  }, ['name']),
   tool('stop_session', 'Stop a session. Its conversation is kept and restart_session resumes it.', { name: str('Session name') }, ['name']),
   tool('restart_session', 'Restart a session, resuming its conversation.', { name: str('Session name') }, ['name']),
   tool('read_screen', "Read what is on a session's terminal right now, for when it is stuck or not answering.", {

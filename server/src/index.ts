@@ -560,7 +560,9 @@ export async function start() {
     }, ms).unref()
   }
   jobs.markInterrupted()
+  // The guide is kept current while Neural runs too, not only at startup (a change reaches main when it next restarts).
   tick(reconcile, config.reconcileMs)
+  tick(async () => installGuide(), 60_000)
   tick(jobs.runDue, config.jobsMs)
   tick(retryStale, config.retryMs)
   tick(async () => void (await ingestAll()), config.ingestMs)

@@ -66,7 +66,7 @@ export function flush(target: string) {
       delivery(row.message_id)
       continue
     }
-    const from = ['user', 'system', 'neural'].includes(msg.from_name) ? msg.from_name : `session:${msg.from_name}`
+    const from = senderTag(msg.from_name)
     const ok = sendToChannel(target, { type: 'push', msg_id: String(msg.id), from, ts: msg.ts, body: forClaude(msg.id, bodyFor(msg)) })
     if (!ok) return
     outbox.markPushed(msg.id, 'channel')
@@ -75,6 +75,9 @@ export function flush(target: string) {
     beginTurnIfIdle(target, msg.from_name === 'user' || msg.from_name === 'system')
   }
 }
+
+/** How a sender appears to a session: user, system, neural, job:<name>, or session:<name>. */
+const senderTag = (name: string) => (['user', 'system', 'neural'].includes(name) || name.startsWith('job:') ? name : `session:${name}`)
 
 /** The message text a session receives, with a note about any attached files. */
 function forClaude(messageId: number, body: string) {
@@ -524,7 +527,7 @@ export async function retryStale() {
     }
     try {
       if (!(await mux.alive(row.target))) continue // reconcile restarts it, and the message is requeued then
-      const from = ['user', 'system', 'neural'].includes(msg.from_name) ? msg.from_name : `session:${msg.from_name}`
+      const from = senderTag(msg.from_name)
       // Record the attempt before typing, so the turn it starts is counted from here.
       outbox.markPushed(row.message_id, 'paste')
       turns.set(row.target, { startedAt: Date.now(), replied: false, forUser: msg.from_name === 'user' })
@@ -753,6 +756,16 @@ function watch(caller: string, name: string, want: string, until: string[], seco
     if (watches.get(key) === ac) watches.delete(key)
   })
   return { name, status: now, watching: true, note: `Neural sends you a message when ${name} is ${want}. You don't need to wait: end your turn, or carry on with something else.` }
+}
+
+const JOB_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/
+
+/** A message from a script or job on this machine, shown as from "job:<name>". */
+export async function notifyFrom(job: string, to: string, text: string, files?: unknown) {
+  if (!JOB_RE.test(job)) throw new Error('from must name the script or job: letters, digits, . _ - (up to 40)')
+  if (to !== 'user' && !sessions.get(to)) throw new Error(`no session "${to}"`)
+  const m = sendMessage({ from: `job:${job}`, to, body: text, source: 'notify', attachments: await importAll(files) })
+  return { id: m.id, to, delivery: m.delivery ?? null }
 }
 
 /** Copy files a session attached into storage. */

@@ -124,6 +124,19 @@ attempts, and starts the waiting sessions again once Claude Code works. The app 
 whether Neural is retrying, and `main` gets a short message when a session goes down, keeps crashing or is
 healthy again, so it can deal with it and tell you only when it can't. A session you stop stays stopped.
 
+### Messages from scripts and jobs
+
+Anything on the Mac can send a message with the command line, for example a launchd job reporting a failure:
+
+```
+bin/neural notify --to user --from nightly-digest "Digest failed: YouTube not authorized"
+some-command 2>&1 | bin/neural notify --to main --from pipeline --file /tmp/run.log -
+```
+
+`--to user` sends a push notification; `--to <session>` delivers it to that session as `from="job:<name>"`.
+It uses the secret in Neural's data folder (`POST /api/notify` with `Authorization: Bearer <secret>` and JSON
+`{to, from, text, files}` does the same).
+
 ### Tools a session gets
 
 - **Every session:** `reply`, `send_message`, `list_sessions`, `search_history`, `get_thread`.

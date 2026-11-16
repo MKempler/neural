@@ -1147,6 +1147,31 @@ test('a session can be started on a model and effort, kept across restarts, and 
   await idle('main')
 })
 
+test('scripts and jobs send messages with `neural notify`, which needs the secret', async () => {
+  const { execFile } = await import('node:child_process')
+  const cli = (args: string[], input?: string) => new Promise<{ code: number; out: string; err: string }>(resolve => {
+    const child = execFile(path.join(here, '../bin/neural'), ['notify', ...args], { env: process.env }, (e: any, out, err) => resolve({ code: e?.code ?? 0, out, err }))
+    child.stdin!.end(input ?? '')
+  })
+  assert.equal((await api('POST', '/api/notify', { from: 'x', to: 'user', text: 'hi' })).status, 403)
+  const report = path.join(tmp, 'digest.txt')
+  fs.writeFileSync(report, 'all good\n')
+  const r = await cli(['--from', 'daily-digest', '--file', report, 'Digest is ready'])
+  assert.equal(r.code, 0, r.err)
+  const m = await messageWhere('the job message', m => m.from_name === 'job:daily-digest' && m.to_name === 'user')
+  assert.equal(m.body, 'Digest is ready')
+  assert.equal(m.attachments.length, 1)
+  // To a session, text from stdin: it arrives marked as a job, not as the user.
+  await idle('main')
+  assert.equal((await cli(['--to', 'main', '--from', 'pipeline', '-'], 'run 41 failed: exit 1')).code, 0)
+  const toMain = await messageWhere('to main', m => m.from_name === 'job:pipeline' && m.to_name === 'main')
+  await messageWhere('main got it', m => m.from_name === 'main' && m.in_reply_to === toMain.id)
+  const bad = await cli(['--to', 'nobody', 'hello'])
+  assert.equal(bad.code, 1)
+  assert.match(bad.err, /no session "nobody"/)
+  await idle('main')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

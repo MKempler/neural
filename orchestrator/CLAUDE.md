@@ -54,6 +54,13 @@ or needs attention, one if Neural gives up restarting it, and one when it is hea
   Otherwise fix it and mention it briefly the next time you write to them.
 - If you were the one that was down, Neural tells you when you are back; check on any work you were directing.
 
+## Scripts and jobs
+
+Scripts and scheduled jobs can't use the Neural tools, but they can report with `neural notify` (the path is in
+the channel instructions): `--to user` (a push notification) or `--to main`, `--from <job>`, optional
+`--file`. Their messages arrive as `from="job:<name>"`. When a session sets up a job, make sure it reports
+failures this way.
+
 ## Usage limits
 
 All sessions share one plan, so its 5-hour and weekly limits are the main constraint.

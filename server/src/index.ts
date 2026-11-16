@@ -10,7 +10,7 @@ import { searchAll, embedPending, embeddingStatus } from './embed.ts'
 import { channels, uiClients, broadcast, bus, doing } from './live.ts'
 import {
   sendMessage, handleHook, handleTool, isCommand, runCommand, settleIfIdle, channelConnected, channelDisconnected,
-  permissionRequested, decidePermission, retryStale, flush, answerQuestion, setPriority,
+  permissionRequested, decidePermission, retryStale, flush, answerQuestion, setPriority, notifyFrom,
 } from './router.ts'
 import { ingestAll, seedModels, compressOldRaw } from './ingest.ts'
 import * as push from './push.ts'
@@ -193,6 +193,14 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       await removeSession(name)
       broadcast({ type: 'session_removed', name })
       return { ok: true }
+    case 'POST notify': {
+      // For scripts and scheduled jobs on this machine (`neural notify`): a message to the user or a session,
+      // from a named job. Needs the secret, since such scripts are not the user at the browser.
+      const given = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '') || String(req.headers['x-neural-secret'] ?? '')
+      if (!secretOk(given)) throw new HttpError(403, 'bad secret')
+      const body = await readJson(req)
+      return notifyFrom(String(body.from ?? ''), String(body.to ?? 'user'), String(body.text ?? ''), body.files)
+    }
     case 'GET usage':
       // The limits, and who used how much of each window.
       return { account: usage.account(), shares: usage.shares() }

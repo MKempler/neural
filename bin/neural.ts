@@ -148,6 +148,42 @@ const commands: Record<string, () => Promise<void> | void> = {
     console.log('Run it as: bin/neural migrate')
   },
 
+  /** neural notify [--to user|<session>] [--from <job>] [--file <path>]... <text…|->: a message from a script. */
+  async notify() {
+    let to = 'user'
+    let from = 'script'
+    const files: string[] = []
+    const words: string[] = []
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i]
+      if (a === '--to') to = args[++i]
+      else if (a === '--from') from = args[++i]
+      else if (a === '--file') files.push(path.resolve(args[++i]))
+      else words.push(a)
+    }
+    let text = words.join(' ')
+    if (text === '-' || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, 'utf8')
+    if (!text.trim() && !files.length) {
+      console.error('usage: neural notify [--to user|<session>] [--from <job>] [--file <path>]... <text, or - to read stdin>')
+      process.exitCode = 2
+      return
+    }
+    try {
+      const res = await fetch(hubUrl + '/api/notify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${config.secret}` },
+        body: JSON.stringify({ to, from, text, files }),
+        signal: AbortSignal.timeout(15_000),
+      })
+      const body: any = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
+      console.log(`sent to ${to} (message ${body.id})`)
+    } catch (e: any) {
+      console.error(`neural notify: ${e.cause?.code === 'ECONNREFUSED' ? `the hub is not running on ${hubUrl}` : e.message}`)
+      process.exitCode = 1
+    }
+  },
+
   help() {
     console.log(`Neural
 
@@ -159,6 +195,8 @@ const commands: Record<string, () => Promise<void> | void> = {
   neural install-service   Start the hub at login and keep it running (launchd)
   neural uninstall-service Remove the login service
   neural restart        Restart the login service (only needed if automatic reloading is off)
+  neural notify [--to user|<session>] [--from <job>] [--file <path>]... <text | ->
+                           Send a message from a script or job (push notification with --to user)
 `)
   },
 }

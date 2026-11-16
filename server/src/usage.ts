@@ -161,9 +161,9 @@ function quotaNotice(key: keyof typeof SPAN, w: Window, level: number) {
   if (level >= HOLD_AT) {
     lines.push(low.length && config.quotaHold
       ? `Low priority: ${low.join(', ')}. Neural now holds messages from other sessions to them until the limit resets; the user's messages still go through.`
-      : 'No session is marked low priority. Pause or stop work that can wait (set_priority marks a session low).')
+      : 'No session is marked low priority. Pause or stop work that can wait (`set_priority` marks a session low).')
   } else {
-    lines.push(low.length ? `Low priority: ${low.join(', ')}; pause those first if it gets tight.` : 'Consider which work can wait; set_priority marks a session low, so Neural holds it near the limit.')
+    lines.push(low.length ? `Low priority: ${low.join(', ')}; pause those first if it gets tight.` : 'Consider which work can wait; `set_priority` marks a session low, so Neural holds it near the limit.')
   }
   return lines.join('\n')
 }

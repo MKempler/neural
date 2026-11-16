@@ -791,7 +791,7 @@ function watch(caller: string, name: string, want: string, until: string[], seco
   watches.set(key, ac)
   const said: Record<string, string> = { idle: 'finished its turn and is idle', blocked: 'is waiting on a permission prompt', exited: 'has exited' }
   waitFor(name, until, seconds * 1000, ac.signal).then(
-    status => sendMessage({ from: 'neural', to: caller, source: 'watch', body: `**${name} ${said[want] ?? `is ${status}`}** (you asked with wait_for to be told).` }),
+    status => sendMessage({ from: 'neural', to: caller, source: 'watch', body: `**${name} ${said[want] ?? `is ${status}`}** (you asked with \`wait_for\` to be told).` }),
     () => {
       if (ac.signal.aborted || !sessions.get(caller) || !sessions.get(name)) return
       sendMessage({ from: 'neural', to: caller, source: 'watch', body: `**${name} is still ${sessions.get(name)!.status}** after ${Math.round(seconds / 60)} min; Neural stopped watching it.` })

@@ -225,7 +225,7 @@ export function gaveUp(s: Session, down: Down, screen = '') {
   if (i.told.has('gave-up')) return
   i.told.add('gave-up')
   i.quiet = false
-  void tell(s.name, `**Neural gave up restarting ${s.name}**: ${down.reason}. Look at its terminal with read_screen, fix the cause if you can, then restart_session to try again.${quote(tail(screen, 8))}`)
+  void tell(s.name, `**Neural gave up restarting ${s.name}**: ${down.reason}. Look at its terminal with \`read_screen\`, fix the cause if you can, then \`restart_session\` to try again.${quote(tail(screen, 8))}`)
   void notify({ title: `${s.name} keeps crashing`, body: `Neural stopped restarting it: ${down.reason}`, session: s.name, tag: `trouble-${s.name}` })
 }
 

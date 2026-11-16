@@ -268,7 +268,7 @@ async function settle(j: Job, r: { status: string; code: number | null; output: 
   const how = r.status === 'timeout' ? `timed out after ${j.timeout_s}s` : r.code === null ? 'could not run' : `exited with status ${r.code}`
   const tail = tailOf(clean(r.output), 12).replace(/```/g, "'''")
   const lines = tail ? '\n```\n' + tail + '\n```' : ''
-  if (failures === 1) say(`**Job ${j.name} failed**: ${how}.${lines}\nlist_jobs shows it; run_job runs it again once it's fixed.`)
+  if (failures === 1) say(`**Job ${j.name} failed**: ${how}.${lines}\n\`list_jobs\` shows it; \`run_job\` runs it again once it's fixed.`)
   else if (failures === ESCALATE_AFTER) {
     say(`**Job ${j.name} keeps failing**: ${failures} runs in a row, last one ${how}.${lines}`)
     void notify({ title: `Job ${j.name} keeps failing`, body: `${failures} failed runs in a row; last one ${how}.`, tag: `job-${j.name}` })

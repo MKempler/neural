@@ -7,6 +7,9 @@ import { sessions } from './db.ts'
 /** Channel MCP servers, one per running session, keyed by session name. */
 export const channels = new Map<string, WebSocket>()
 
+/** Set while the hub shuts down (for a code reload), so it starts nothing it can't see through. */
+export const lifecycle = { stopping: false }
+
 /** Browser tabs. */
 export const uiClients = new Set<WebSocket>()
 

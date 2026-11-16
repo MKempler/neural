@@ -1312,6 +1312,18 @@ test('a fresh context can be asked for by hand, for a worker too', async () => {
   await idle('main')
 })
 
+test('a session left at a startup prompt with nobody answering it is picked up again', async () => {
+  // As if the hub had restarted between launching it and answering its prompt.
+  const { sessions: rows, events } = await import('../server/src/db.ts')
+  const sp = await import('../server/src/spawner.ts')
+  rows.create('dlg2', 'worker', tmp, false)
+  await sp.mux.spawn('dlg2', tmp, sp.launchArgv(rows.get('dlg2')!), { MCP_PROTOCOL_NEGOTIATION: 'legacy' })
+  await idle('dlg2')
+  assert.ok(events.recent('dlg2', 50).some((e: any) => e.event === 'startup-resumed'))
+  assert.ok(events.recent('dlg2', 50).some((e: any) => e.event === 'dialog'))
+  await sp.removeSession('dlg2')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

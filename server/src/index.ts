@@ -7,7 +7,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { ROOT, config } from './config.ts'
 import { sessions, messages, permissions, events, reads, prefs, frequentReplies, questions } from './db.ts'
 import { searchAll, embedPending, embeddingStatus } from './embed.ts'
-import { channels, uiClients, broadcast, bus, doing, publicSession } from './live.ts'
+import { channels, uiClients, broadcast, bus, doing, publicSession, lifecycle } from './live.ts'
 import {
   sendMessage, handleHook, handleTool, isCommand, runCommand, settleIfIdle, channelConnected, channelDisconnected,
   permissionRequested, decidePermission, retryStale, flush, answerQuestion, setPriority, notifyFrom,
@@ -596,6 +596,7 @@ export async function start() {
 }
 
 export function stop() {
+  lifecycle.stopping = true
   for (const ws of wss.clients) ws.terminate() // browsers, channel servers and live terminals
   return new Promise(resolve => server.close(resolve))
 }

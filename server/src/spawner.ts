@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { ROOT, config, hubUrl, findBin } from './config.ts'
 import { sessions, events, permissions, outbox, usage, questions, type Session } from './db.ts'
-import { channels, setStatus, sessionChanged, bus, turns, activity } from './live.ts'
+import { channels, setStatus, sessionChanged, bus, turns, activity, lifecycle } from './live.ts'
 import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
 import * as health from './health.ts'
@@ -327,7 +327,20 @@ export function resumeStartup(name: string) {
   void passStartupDialogs(name)
 }
 
+/** Sessions whose startup dialogs are being watched right now. */
+const watchingStartup = new Set<string>()
+
 async function passStartupDialogs(name: string) {
+  if (watchingStartup.has(name)) return
+  watchingStartup.add(name)
+  try {
+    await watchStartup(name)
+  } finally {
+    watchingStartup.delete(name)
+  }
+}
+
+async function watchStartup(name: string) {
   const deadline = Date.now() + 90_000
   const fired = new Map<string, number>()
   let screen = ''
@@ -478,6 +491,8 @@ export function waitFor(name: string, until: string[], timeoutMs: number, signal
 // On a timer: notice dead sessions and bring them back. A session is wanted until the user stops it
 // (from the UI, or by exiting Claude in its terminal), so a crash or a reboot ends in a resumed session.
 export async function reconcile() {
+  // Shutting down: a restart begun now would lose its startup watcher when the process exits.
+  if (lifecycle.stopping) return
   let refreshedThisPass = false
   for (const row of sessions.all()) {
     if (row.status === 'stopped') continue
@@ -486,6 +501,13 @@ export async function reconcile() {
     const s = sessions.get(row.name)
     if (!s || s.status === 'stopped') continue
     if (alive) {
+      // "Starting" with nobody answering its startup dialogs: the watcher was lost (the hub restarted while
+      // the session was being launched, say). Pick it up again rather than leave it waiting forever.
+      if (s.status === 'starting' && !watchingStartup.has(s.name) && !channels.has(s.name) && Date.now() - Date.parse(s.updated_at) > 2000) {
+        events.add(s.name, 'startup-resumed', null)
+        void passStartupDialogs(s.name)
+        continue
+      }
       // Ten minutes up since the last (re)start: it's healthy again, so later crashes get the full retry budget.
       // (Timed from the spawn, not updated_at, which every status change moves, so a busy session never got there.)
       if (s.restarts && s.channel_connected) markHealthy(s.name)

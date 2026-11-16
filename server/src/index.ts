@@ -10,7 +10,7 @@ import { searchAll, embedPending, embeddingStatus } from './embed.ts'
 import { channels, uiClients, broadcast, bus, doing } from './live.ts'
 import {
   sendMessage, handleHook, handleTool, isCommand, runCommand, settleIfIdle, channelConnected, channelDisconnected,
-  permissionRequested, decidePermission, retryStale, flush, answerQuestion,
+  permissionRequested, decidePermission, retryStale, flush, answerQuestion, setPriority,
 } from './router.ts'
 import { ingestAll, seedModels, compressOldRaw } from './ingest.ts'
 import * as push from './push.ts'
@@ -154,6 +154,10 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         const action = parts[2]
         if (action === 'stop') return stopSession(name).then(() => sessions.get(name))
         if (action === 'restart') return restartSession(name)
+        if (action === 'priority') {
+          setPriority(name, (await readJson(req)).priority)
+          return sessions.get(name)
+        }
         if (action === 'interrupt') {
           // Esc stops Claude Code's current turn, the same as pressing it in the terminal.
           if (!sessions.get(name)) throw new HttpError(404, 'unknown session')
@@ -184,6 +188,9 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       await removeSession(name)
       broadcast({ type: 'session_removed', name })
       return { ok: true }
+    case 'GET usage':
+      // The limits, and who used how much of each window.
+      return { account: usage.account(), shares: usage.shares() }
     case 'GET screen':
       return { screen: await mux.capture(name, num(url.searchParams.get('history')) ?? 0).catch(() => '') }
     case 'GET events':

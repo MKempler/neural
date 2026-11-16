@@ -1,7 +1,8 @@
 // The usage and context meter: how much of the account's 5-hour and weekly limits is used, and how full each
 // session's context window is. Both come from Claude Code's status line, so they appear after a session's
 // first reply, and the limits only for claude.ai subscriptions.
-import { html, clock } from '../lib.js'
+import { useEffect, useState } from 'preact/hooks'
+import { html, clock, api } from '../lib.js'
 import { usage } from '../store.js'
 
 /** A window as it stands now: one past its reset time has started over. */
@@ -24,14 +25,19 @@ const level = used => (used >= 90 ? 'bad' : used >= 75 ? 'warn' : '')
 export function UsageMeter() {
   const five = current(usage.value?.five_hour)
   const week = current(usage.value?.seven_day)
+  // Who used how much of each window, fetched again whenever the limits move.
+  const [shares, setShares] = useState(null)
+  useEffect(() => {
+    api('GET', '/api/usage').then(r => setShares(r.shares), () => {})
+  }, [usage.value?.five_hour?.used, usage.value?.seven_day?.used])
   if (!five && !week) return null
   return html`<div class="usage">
-    ${five && html`<${Meter} label="5-hour" w=${five} />`}
-    ${week && html`<${Meter} label="Week" w=${week} />`}
+    ${five && html`<${Meter} label="5-hour" w=${five} by=${!five.reset && shares?.five_hour} />`}
+    ${week && html`<${Meter} label="Week" w=${week} by=${!week.reset && shares?.seven_day} />`}
   </div>`
 }
 
-function Meter({ label, w }) {
+function Meter({ label, w, by }) {
   return html`<div class=${`meter ${level(w.used)}`}>
     <div class="meter-top">
       <span class="name">${label}</span>
@@ -41,6 +47,8 @@ function Meter({ label, w }) {
     <div class="bar" role="progressbar" aria-label=${`${label} limit`} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${w.used}>
       <span style=${`width: ${w.used}%`}></span>
     </div>
+    ${by?.length > 1 && html`<div class="meter-by" title="Share of this window's use, estimated from each session's cost">
+      ${by.filter(x => x.share > 0).slice(0, 5).map(x => `${x.name} ${x.share}%`).join(' · ')}</div>`}
   </div>`
 }
 

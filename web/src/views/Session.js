@@ -56,6 +56,11 @@ export function Session() {
     phone && tab !== 'activity' && { label: 'Activity log', icon: 'activity', run: () => setTab('activity') },
     phone && tab !== 'chat' && { label: 'Conversation', icon: 'chat', run: () => setTab('chat') },
     { label: 'Model and effort', icon: 'settings', run: () => (modelSheet.value = name) },
+    { label: `Priority: ${s.priority ?? 'normal'}`, icon: 'up', run: () => {
+      // normal → low → high → normal. Near a usage limit, low-priority sessions get only your messages.
+      const next = { normal: 'low', low: 'high', high: 'normal' }[s.priority ?? 'normal']
+      sessionAction(name, 'priority', { priority: next }).catch(e => alert(e.message))
+    } },
     phone && '-',
     { label: down ? 'Start' : 'Restart', icon: 'restart', run: () => sessionAction(name, 'restart').catch(e => alert(e.message)) },
     !down && { label: 'Stop session', icon: 'stop', run: () => confirm(`Stop ${name}? Its conversation is kept and it can be started again.`) && sessionAction(name, 'stop').catch(e => alert(e.message)) },

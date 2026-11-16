@@ -9,6 +9,7 @@ import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, s
 import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName, claudeAgent, ensureClaude } from './spawner.ts'
 import * as projects from './projects.ts'
 import * as health from './health.ts'
+import * as usage from './usage.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -53,9 +54,12 @@ export function sendMessage(m: { from: string; to: string; body: string; source:
 export function flush(target: string) {
   const s = sessions.get(target)
   if (!s || !channels.has(target)) return
+  const hold = usage.held(target)
   for (const row of outbox.pending(target)) {
     const msg = messages.get(row.message_id)
     if (!msg) continue
+    // Near a usage limit a low-priority session gets only the user's messages; the rest wait for the reset.
+    if (hold && msg.from_name !== 'user') continue
     if (row.attempts >= MAX_ATTEMPTS) {
       original.delete(row.message_id)
       outbox.markFailed(row.message_id, 'gave up after repeated delivery attempts')
@@ -114,6 +118,7 @@ export function handleHook(name: string, event: string, payload: any) {
   if (event === 'PreToolUse' || event === 'UserPromptSubmit') resumeDue.delete(name)
   noteModel(name, event === 'PostModelSwitch' ? payload?.to_model : payload?.model, payload?.effort?.level ?? payload?.effort)
   if (event === 'PreToolUse') {
+    toolStarted.set(name, Date.now())
     // Tool calls after a pause (the usage limit reset, or work started at the terminal) mean it's working again.
     if (['idle', 'limited', 'attention'].includes(s.status)) {
       if (!turns.has(name)) turns.set(name, { startedAt: Date.now(), replied: false, forUser: true })
@@ -496,6 +501,9 @@ export function channelDisconnected(name: string) {
 // Fallback delivery: a push that shows no sign of being read is pasted into the terminal instead.
 
 export async function retryStale() {
+  // Messages held for low-priority sessions near a usage limit go out once it has reset.
+  for (const s of sessions.all()) if (s.priority === 'low' && channels.has(s.name) && outbox.pending(s.name).length) flush(s.name)
+
   for (const row of outbox.stale(config.ackTimeoutSec)) {
     const s = sessions.get(row.target)
     // Down, starting, or at its usage limit: hold the message; it goes through when the session can take it.
@@ -617,7 +625,15 @@ export async function answerQuestion(id: number, body: any) {
 // ---------------------------------------------------------------------------------------------
 // Tools: calls the channel MCP server forwards on behalf of Claude.
 
-const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for'])
+const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for', 'set_priority'])
+
+export function setPriority(name: string, priority: unknown) {
+  if (!sessions.get(name)) throw new Error(`no session "${name}"`)
+  if (!['high', 'normal', 'low'].includes(String(priority))) throw new Error('priority must be high, normal or low')
+  sessions.update(name, { priority: String(priority) })
+  sessionChanged(name)
+  flush(name) // lowered or raised: anything held may go now
+}
 
 export async function handleTool(caller: string, tool: string, a: any): Promise<unknown> {
   const me = sessions.get(caller)
@@ -632,10 +648,16 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       if (a.to === caller) throw new Error('a session cannot message itself')
       if (a.to !== 'user' && !sessions.get(String(a.to))) throw new Error(`no session "${a.to}"`)
       return say(caller, String(a.to), a.text, a.to === 'user' ? 'reply' : 'send_message', a.in_reply_to, await importAll(a.files))
-    case 'list_sessions':
+    case 'list_sessions': {
+      const all = usage.shares()
       return sessions.all().map(s => ({
         name: s.name, role: s.role, status: s.status, cwd: s.cwd, connected: Boolean(s.channel_connected), you: s.name === caller,
+        priority: s.priority, usage_share: usage.shareOf(s.name, all),
       }))
+    }
+    case 'set_priority':
+      setPriority(String(a.name), a.priority)
+      return { name: a.name, priority: a.priority }
     case 'search_history':
       return searchAll(String(a.query ?? ''), { session: a.session, since: a.since, limit: a.limit })
     case 'get_thread': {
@@ -653,6 +675,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       else if (a.new_project) cwd = (await projects.create(String(a.name), { github: a.github_repo === true })).path
       if (!cwd) throw new Error('cwd is required (or new_project, or clone)')
       await startSession(a.name, { cwd, role: 'worker' })
+      if (a.priority) setPriority(a.name, a.priority)
       if (a.initial_prompt) sendMessage({ from: caller, to: a.name, body: a.initial_prompt, source: 'send_message' })
       return { started: a.name, cwd, note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
     }
@@ -681,7 +704,13 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
 
 /** Wait for `name` to reach a state, but return early when a message arrives for the caller: Claude Code only
  *  shows it a new message once a tool returns, so a long wait would leave the user unanswered. */
+const toolStarted = new Map<string, number>()
+
 function waitOrMessage(caller: string, name: string, until: string[], ms: number) {
+  // A message pushed after this tool call began (and before the hub heard of it) hasn't been seen either.
+  const since = toolStarted.get(caller) ?? Date.now()
+  const missed = outbox.pushed(caller).map(r => messages.get(r.message_id)).find(m => m && Date.parse(m.ts) >= since - 250)
+  if (missed) return Promise.resolve({ name, status: sessions.get(name)?.status, interrupted: 'new message', from: missed.from_name, note: 'Answer it, then wait again if you still need to.' })
   const ac = new AbortController()
   return new Promise<Record<string, unknown>>((resolve, reject) => {
     const onMessage = (from: string) => {

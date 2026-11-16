@@ -54,7 +54,7 @@ are trademarks of Anthropic.
 
 - **Home:** what needs you (approvals, stuck sessions, unread replies), a card per session with its state
   and last message, recent activity across sessions, and a box to message `main`. Bars show how much of
-  your 5-hour and weekly usage limits is used and when each resets.
+  your 5-hour and weekly usage limits is used, when each resets, and which sessions used it.
 - **Session:** the conversation, the live terminal, the session's changes and an activity log of what it did.
   On a wide screen the conversation and terminal can sit side by side.
 - **Changes:** the branch and whether it's pushed, uncommitted files and recent commits, each with a diff that
@@ -210,6 +210,9 @@ which can run commands on your computer.
   time, you get a message and a notification, and messages you send wait instead of being retried against the
   limit. When the limit resets, a session whose turn was cut off is told to carry on with its task, one session
   a minute with `main` first, and you get a notification. Weekly limits are left for you to restart.
+  Before that, `main` is told when a limit passes 80% and 95%, with each session's share. Sessions can be
+  marked high, normal or low priority; from 95%, messages from other sessions to low-priority ones wait for
+  the reset (yours still go through; `NEURAL_QUOTA_HOLD=off` or `"quotaHold": false` turns that off).
 - **The status line is Neural's.** Usage and context come from Claude Code's status line, so sessions started
   by Neural use one that reports to the hub and shows "context 41% · 5-hour 62% (resets 20:20) · week 41%"
   in the terminal. A status line you set up yourself (in your user or project settings) still shows instead.

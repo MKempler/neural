@@ -29,7 +29,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -78,6 +78,8 @@ export const config = {
   reconcileMs: Number(env('RECONCILE_MS') ?? 15_000),
   restartBackoffMs: Number(env('RESTART_BACKOFF_MS') ?? 15_000),
   // After a crash, how long a session must stay up before the orchestrator is told it is healthy again.
+  // Near a usage limit (95%), hold messages from other sessions to low-priority sessions until it resets.
+  quotaHold: (env('QUOTA_HOLD') ?? (file.quotaHold === false ? 'off' : 'on')) !== 'off',
   recoveredAfterMs: Number(env('RECOVERED_MS') ?? 60_000),
   retryMs: Number(env('RETRY_MS') ?? 10_000),
   // Files attached to messages, and the largest single file accepted.

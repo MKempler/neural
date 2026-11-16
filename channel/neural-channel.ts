@@ -34,7 +34,7 @@ const TOOLS = [
     files: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of files to attach (up to 10)' },
     in_reply_to: str('The msg_id this answers, when there is one'),
   }, ['to']),
-  tool('list_sessions', 'List the Claude sessions the hub knows, with role, status and working directory.', {}),
+  tool('list_sessions', 'List the Claude sessions the hub knows, with role, status, working directory, priority, and each one\'s estimated share of the current 5-hour and weekly usage (percent of what all sessions used).', {}),
   tool('search_history', 'Search the permanent history: every message through the hub and every archived Claude Code transcript. Matches by keyword and by meaning, so a plain-language question works. Use it whenever something from an earlier conversation is needed.', {
     query: str('Words or a question to search for'),
     session: str('Only this session'),
@@ -56,7 +56,12 @@ const ORCHESTRATOR_TOOLS = [
     github_repo: { type: 'boolean', description: 'With new_project: also create a private GitHub repository for it as origin. Only when the user asked for one' },
     clone: str('owner/name of a GitHub repository to clone into the projects folder and work in'),
     initial_prompt: str('First message to send it'),
+    priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'low: work that can wait. Near a usage limit Neural holds messages from other sessions to it until the reset (default normal)' },
   }, ['name']),
+  tool('set_priority', 'Mark a session high, normal or low priority. Near a usage limit, low-priority sessions are the ones to pause: Neural holds messages from other sessions to them until the limit resets (the user\'s messages still go through).', {
+    name: str('Session name'),
+    priority: { type: 'string', enum: ['high', 'normal', 'low'] },
+  }, ['name', 'priority']),
   tool('stop_session', 'Stop a session. Its conversation is kept and restart_session resumes it.', { name: str('Session name') }, ['name']),
   tool('restart_session', 'Restart a session, resuming its conversation.', { name: str('Session name') }, ['name']),
   tool('read_screen', "Read what is on a session's terminal right now, for when it is stuck or not answering.", {

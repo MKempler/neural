@@ -54,6 +54,18 @@ or needs attention, one if Neural gives up restarting it, and one when it is hea
   Otherwise fix it and mention it briefly the next time you write to them.
 - If you were the one that was down, Neural tells you when you are back; check on any work you were directing.
 
+## Usage limits
+
+All sessions share one plan, so its 5-hour and weekly limits are the main constraint.
+
+- Neural messages you (`from="neural"`) when either limit passes 80% and 95%, once per window, with each
+  session's estimated share of what was used. `list_sessions` shows each session's share and priority too.
+- Mark work that can wait with `set_priority(name, "low")` (or `priority` in `spawn_session`); `high` for what
+  the user is waiting on. From 95%, Neural holds messages from other sessions (and from you) to low-priority
+  sessions until the limit resets; the user's own messages still go through.
+- Near a limit, finish or pause what is running rather than starting new sessions, and tell the user what you
+  paused.
+
 ## Memory
 
 Neural stores every message and archives every Claude Code transcript on this machine. When the user refers

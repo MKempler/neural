@@ -1077,6 +1077,49 @@ test('a wait ends as soon as a message arrives, and notify: true does not block 
   await idle('main')
 })
 
+test('the quota guard: alerts at 80% and 95% with who used it, and low-priority sessions held near the limit', async () => {
+  const usage = await import('../server/src/usage.ts')
+  await idle('main')
+  await idle('hw')
+  const resets = Math.floor(Date.now() / 1000) + 3600
+  const reading = (cost: number, used: number, at = resets) => ({
+    cost: { total_cost_usd: cost },
+    rate_limits: { five_hour: { used_percentage: used, resets_at: at }, seven_day: { used_percentage: 40, resets_at: at + 86400 } },
+  })
+  const alerts = async (re: RegExp) => (await get('/api/messages?limit=500')).filter((m: any) => m.from_name === 'neural' && m.to_name === 'main' && re.test(m.body))
+  usage.record('hw', reading(0.5, 50))
+  usage.record('hw', reading(4.5, 70)) // hw spent 4.50 in this window
+  usage.record('main', reading(0.5, 81))
+  const first = await messageWhere('the 80% alert', m => m.from_name === 'neural' && /5-hour usage is at 81%/.test(m.body))
+  assert.match(first.body, /hw \d+%/)
+  assert.match(first.body, /set_priority/)
+  usage.record('main', reading(0.6, 84)) // the same level again: no new alert
+  assert.equal((await api('POST', '/api/sessions/hw/priority', { priority: 'low' })).body.priority, 'low')
+  usage.record('main', reading(0.7, 96))
+  const second = await messageWhere('the 95% alert', m => m.from_name === 'neural' && /5-hour usage is at 96%/.test(m.body))
+  assert.match(second.body, /Low priority: hw\. Neural now holds/)
+  assert.equal((await alerts(/5-hour usage is at/)).length, 2)
+  const shares = (await get('/api/usage')).shares.five_hour
+  assert.ok(shares.find((x: any) => x.name === 'hw').share > shares.find((x: any) => x.name === 'main').share)
+
+  // Held: a message from main waits; one from the user goes straight through.
+  await say('main', `tool send_message ${JSON.stringify({ to: 'hw', text: 'echo: held for later' })}`)
+  const held = await messageWhere('the held message', m => m.from_name === 'main' && m.to_name === 'hw' && m.body === 'echo: held for later')
+  await say('hw', 'are you still there')
+  await messageWhere('the user is answered', m => m.from_name === 'hw' && m.body === 'echo: are you still there')
+  assert.equal((await get('/api/messages?session=hw')).find((m: any) => m.id === held.id).delivery, 'pending')
+  const listed = await say('main', 'tool list_sessions {}')
+  const out = await messageWhere('list_sessions', m => m.from_name === 'main' && m.in_reply_to === listed.id)
+  assert.match(out.body, /"priority": "low"/)
+  assert.match(out.body, /"usage_share"/)
+  // The window resets: the held message goes out.
+  usage.record('main', reading(0.8, 3, resets + 5 * 3600))
+  await until('delivered after the reset', async () =>
+    (await get('/api/messages?session=hw')).find((m: any) => m.id === held.id).delivery !== 'pending')
+  await api('POST', '/api/sessions/hw/priority', { priority: 'normal' })
+  await idle('main')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

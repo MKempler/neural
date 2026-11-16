@@ -169,7 +169,7 @@ async function send(to: string, body: string) {
   sendMessage({ from: 'neural', to, body, source: 'health' })
 }
 
-async function tell(about: string, body: string) {
+export async function tell(about: string, body: string) {
   for (const o of sessions.all()) {
     // A message to an orchestrator that is down waits in its queue and arrives once it's back.
     if (o.role !== 'orchestrator' || o.name === about || o.status === 'stopped') continue

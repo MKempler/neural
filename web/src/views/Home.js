@@ -114,6 +114,7 @@ export function SessionCard({ s }) {
     <div class="card-meta">
       ${s.role === 'orchestrator' && html`<span class="tag accent">orchestrator</span>`}
       ${modelChip(s) && html`<span class="tag">${modelChip(s)}</span>`}
+      ${s.priority && s.priority !== 'normal' && html`<span class=${`tag ${s.priority === 'high' ? 'accent' : ''}`}>${s.priority} priority</span>`}
       ${s.context?.used >= 80 && html`<span class="tag warn"><${ContextChip} s=${s} /></span>`}
       <span class="cwd" title=${s.cwd}>${shortPath(s.cwd)}</span>
     </div>

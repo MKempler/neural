@@ -58,6 +58,7 @@ export type Session = {
   effort: string | null
   launch_rev: string | null
   down: string | null
+  priority: string
 }
 
 export type Message = {
@@ -277,6 +278,14 @@ export const usage = {
     q(`INSERT INTO usage (name, data) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = ${NOW}`)
       .run(name, JSON.stringify(data)),
   remove: (name: string) => q('DELETE FROM usage WHERE name = ?').run(name),
+}
+
+export const usageLog = {
+  add: (session: string, cost: number) => q('INSERT INTO usage_log (session, cost) VALUES (?, ?)').run(session, cost),
+  /** Cost per session since an ISO time, largest first. */
+  since: (ts: string) => q<{ session: string; cost: number }>(
+    'SELECT session, SUM(cost) AS cost FROM usage_log WHERE ts >= ? GROUP BY session ORDER BY cost DESC').all(ts),
+  prune: (before: string) => q('DELETE FROM usage_log WHERE ts < ?').run(before),
 }
 
 export const events = {

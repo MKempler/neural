@@ -342,7 +342,7 @@ export const drafts = {
   set: (key, text) => local.set(`neural.draft.${key}`, text),
 }
 
-export const sessionAction = (name, action) => api('POST', `/api/sessions/${encodeURIComponent(name)}/${action}`)
+export const sessionAction = (name, action, body) => api('POST', `/api/sessions/${encodeURIComponent(name)}/${action}`, body)
 export const removeSession = name => api('DELETE', `/api/sessions/${encodeURIComponent(name)}`)
 export const answer = (id, body) => api('POST', `/api/questions/${id}`, body)
 export async function saveQuickReplies(list) {

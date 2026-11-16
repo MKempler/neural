@@ -63,6 +63,7 @@ export type Session = {
   launch_effort: string | null
   note: string | null
   note_at: string | null
+  mcp_servers: string | null
 }
 
 export type Message = {

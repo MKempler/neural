@@ -6,7 +6,7 @@ import { searchAll } from './embed.ts'
 import { broadcast, bus, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
 import { notify } from './push.ts'
 import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, summary } from './files.ts'
-import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName, claudeAgent, ensureClaude, launchFields, setLaunch } from './spawner.ts'
+import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName, claudeAgent, ensureClaude, launchFields, setLaunch, mergeServers, setServers } from './spawner.ts'
 import * as projects from './projects.ts'
 import * as health from './health.ts'
 import * as usage from './usage.ts'
@@ -629,7 +629,7 @@ export async function answerQuestion(id: number, body: any) {
 // ---------------------------------------------------------------------------------------------
 // Tools: calls the channel MCP server forwards on behalf of Claude.
 
-const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for', 'set_priority', 'set_model'])
+const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for', 'set_priority', 'set_model', 'set_mcp_servers'])
 
 export function setPriority(name: string, priority: unknown) {
   if (!sessions.get(name)) throw new Error(`no session "${name}"`)
@@ -659,6 +659,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
         note: s.note ? { text: s.note, at: s.note_at } : null,
         priority: s.priority, usage_share: usage.shareOf(s.name, all),
         model: s.model, effort: s.effort, launch: { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' },
+        mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : [],
       }))
     }
     case 'set_status': {
@@ -689,6 +690,12 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       const note = { restarted: 'Restarted with it now; the conversation was resumed.', 'when idle': 'It switches once its current turn is done and it has been idle a few minutes (it is restarted and resumes its conversation).', 'next start': 'It applies the next time the session starts.' }[when]
       return { name: a.name, model: a.model, effort: a.effort, note }
     }
+    case 'set_mcp_servers': {
+      const when = await setServers(String(a.name), a.mcp_servers)
+      const note = { restarted: 'Restarted with them now; the conversation was resumed.', 'when idle': 'They are added once its current turn is done and it has been idle a few minutes (it is restarted and resumes its conversation).', 'next start': 'They apply the next time the session starts.' }[when]
+      const now = sessions.get(String(a.name))!
+      return { name: a.name, mcp_servers: now.mcp_servers ? Object.keys(JSON.parse(now.mcp_servers)) : [], note }
+    }
     case 'set_priority':
       setPriority(String(a.name), a.priority)
       return { name: a.name, priority: a.priority }
@@ -704,12 +711,13 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       if (sessions.get(a.name) && (await mux.alive(a.name))) throw new Error(`"${a.name}" is already running`)
       await ensureClaude() // before a project folder is made for a session that couldn't start
       launchFields({ model: a.model, effort: a.effort }) // checked before anything is created
+      if (a.mcp_servers !== undefined) mergeServers(null, a.mcp_servers)
       // A new project or a clone gets its folder in the projects folder first.
       let cwd = a.cwd
       if (a.clone) cwd = (await projects.clone(String(a.clone))).path
       else if (a.new_project) cwd = (await projects.create(String(a.name), { github: a.github_repo === true })).path
       if (!cwd) throw new Error('cwd is required (or new_project, or clone)')
-      await startSession(a.name, { cwd, role: 'worker', model: a.model, effort: a.effort })
+      await startSession(a.name, { cwd, role: 'worker', model: a.model, effort: a.effort, mcpServers: a.mcp_servers })
       if (a.priority) setPriority(a.name, a.priority)
       if (a.initial_prompt) sendMessage({ from: caller, to: a.name, body: a.initial_prompt, source: 'send_message' })
       return { started: a.name, cwd, note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }

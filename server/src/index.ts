@@ -7,7 +7,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { ROOT, config } from './config.ts'
 import { sessions, messages, permissions, events, reads, prefs, frequentReplies, questions } from './db.ts'
 import { searchAll, embedPending, embeddingStatus } from './embed.ts'
-import { channels, uiClients, broadcast, bus, doing } from './live.ts'
+import { channels, uiClients, broadcast, bus, doing, publicSession } from './live.ts'
 import {
   sendMessage, handleHook, handleTool, isCommand, runCommand, settleIfIdle, channelConnected, channelDisconnected,
   permissionRequested, decidePermission, retryStale, flush, answerQuestion, setPriority, notifyFrom,
@@ -82,7 +82,7 @@ function checkBrowser(req: http.IncomingMessage) {
 }
 
 function withSummary(s: ReturnType<typeof sessions.all>[number]) {
-  return { ...s, last_message: reads.last(s.name), last_reply: reads.lastReply(s.name), unread: reads.unread(s.name), activity: doing.get(s.name) ?? null, context: usage.context(s.name) }
+  return { ...publicSession(s), last_message: reads.last(s.name), last_reply: reads.lastReply(s.name), unread: reads.unread(s.name), activity: doing.get(s.name) ?? null, context: usage.context(s.name) }
 }
 
 /** First name for the greeting: config.json, then the Tailscale identity of the request, else nothing. */
@@ -157,7 +157,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         if (action === 'restart') return restartSession(name)
         if (action === 'launch') {
           const body = await readJson(req)
-          const when = await setLaunch(name, { model: body.model, effort: body.effort })
+          const when = await setLaunch(name, { model: body.model, effort: body.effort, mcpServers: body.mcp_servers })
           return { ...sessions.get(name), applies: when }
         }
         if (action === 'priority') {

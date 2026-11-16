@@ -60,5 +60,16 @@ export function setStatus(name: string, status: string, detail: string | null = 
 
 export function sessionChanged(name: string) {
   const session = sessions.get(name)
-  if (session) broadcast({ type: 'session', session })
+  if (session) broadcast({ type: 'session', session: publicSession(session) })
+}
+
+/** A session row for the app: extra MCP servers by name only, since their env and headers can hold keys. */
+export function publicSession<T extends { mcp_servers?: string | null }>(s: T) {
+  let names: string[] = []
+  try {
+    names = s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : []
+  } catch {
+    // unreadable: none shown
+  }
+  return { ...s, mcp_servers: names }
 }

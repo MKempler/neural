@@ -64,6 +64,7 @@ const ORCHESTRATOR_TOOLS = [
     initial_prompt: str('First message to send it'),
     model: str('Model to run it on, kept across restarts: an alias (sonnet, opus, haiku) or a full model name. Default: Claude Code\'s default. A cheaper model saves quota for routine work'),
     effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'Effort level, kept across restarts (default: Claude Code\'s default)' },
+    mcp_servers: { type: 'object', description: 'Extra MCP servers for this session only, kept across restarts: {"name": {"command": "...", "args": [...], "env": {...}}} or {"name": {"type": "http", "url": "..."}}. Stored in Neural\'s database, so prefer servers that read their keys from their own config over keys in env' },
     priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'low: work that can wait. Near a usage limit Neural holds messages from other sessions to it until the reset (default normal)' },
   }, ['name']),
   tool('set_model', 'Change the model and/or effort a session runs on, kept across restarts. An idle session is restarted with it at once (its conversation resumes); a busy one switches after its turn. Use "default" to go back to Claude Code\'s default.', {
@@ -71,6 +72,10 @@ const ORCHESTRATOR_TOOLS = [
     model: str('Alias (sonnet, opus, haiku), full model name, or "default"'),
     effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max', 'default'] },
   }, ['name']),
+  tool('set_mcp_servers', 'Add, change or remove extra MCP servers on a session (kept across restarts). Merged into what it has; a null config removes that server. An idle session is restarted with them at once (its conversation resumes); a busy one after its turn.', {
+    name: str('Session name'),
+    mcp_servers: { type: 'object', description: '{"server-name": {"command": "...", "args": [...], "env": {...}} | {"type": "http", "url": "...", "headers": {...}} | null}' },
+  }, ['name', 'mcp_servers']),
   tool('set_priority', 'Mark a session high, normal or low priority. Near a usage limit, low-priority sessions are the ones to pause: Neural holds messages from other sessions to them until the limit resets (the user\'s messages still go through).', {
     name: str('Session name'),
     priority: { type: 'string', enum: ['high', 'normal', 'low'] },

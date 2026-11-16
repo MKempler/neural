@@ -54,6 +54,7 @@ function runConfig(s: Session) {
   const settingsFile = path.join(config.runDir, `${s.name}.settings.json`)
   const mcp = {
     mcpServers: {
+      ...extraServers(s),
       neural: {
         command: config.nodeBin,
         args: ['--disable-warning=ExperimentalWarning', path.join(ROOT, 'channel/neural-channel.ts')],
@@ -127,6 +128,61 @@ function sessionFlags(s: Session) {
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
+// ---------------------------------------------------------------------------------------------
+// Extra MCP servers for one session, besides Neural's own: written into its --mcp-config at launch.
+
+const SERVER_NAME = /^[A-Za-z0-9_-]{1,40}$/
+
+function extraServers(s: Session): Record<string, unknown> {
+  try {
+    return s.mcp_servers ? JSON.parse(s.mcp_servers) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Check one server's config: a command to run (stdio), or an http/sse URL. */
+export function checkServer(name: string, c: any) {
+  if (!SERVER_NAME.test(name) || name === 'neural') throw new Error(`bad MCP server name "${name}" (letters, digits, - and _; not "neural")`)
+  if (!c || typeof c !== 'object' || Array.isArray(c)) throw new Error(`MCP server "${name}" needs a config object`)
+  const strings = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
+  const stringMap = (v: unknown) => v === undefined || (typeof v === 'object' && v !== null && !Array.isArray(v) && Object.values(v).every(x => typeof x === 'string'))
+  if (c.type === 'http' || c.type === 'sse') {
+    if (typeof c.url !== 'string' || !/^https?:\/\//.test(c.url)) throw new Error(`MCP server "${name}" needs an http(s) url`)
+    if (!stringMap(c.headers)) throw new Error(`headers of "${name}" must map names to strings`)
+    return { type: c.type, url: c.url, ...(c.headers ? { headers: c.headers } : {}) }
+  }
+  if (c.type !== undefined && c.type !== 'stdio') throw new Error(`MCP server "${name}": type must be stdio, http or sse`)
+  if (typeof c.command !== 'string' || !c.command.trim()) throw new Error(`MCP server "${name}" needs a command (or type http with a url)`)
+  if (!strings(c.args)) throw new Error(`args of "${name}" must be a list of strings`)
+  if (!stringMap(c.env)) throw new Error(`env of "${name}" must map names to strings`)
+  return { command: c.command, ...(c.args ? { args: c.args } : {}), ...(c.env ? { env: c.env } : {}) }
+}
+
+/** Merge changes into a session's extra servers (a null config removes that server); returns the new JSON. */
+export function mergeServers(current: string | null, changes: unknown): string | null {
+  if (!changes || typeof changes !== 'object' || Array.isArray(changes)) throw new Error('mcp_servers must map server names to configs')
+  const next: Record<string, unknown> = (() => {
+    try {
+      return current ? JSON.parse(current) : {}
+    } catch {
+      return {}
+    }
+  })()
+  for (const [name, c] of Object.entries(changes as Record<string, unknown>)) {
+    if (c === null) delete next[name]
+    else next[name] = checkServer(name, c)
+  }
+  return Object.keys(next).length ? JSON.stringify(next) : null
+}
+
+/** Add, change or remove (null) extra MCP servers on a session; it restarts onto them like setLaunch. */
+export async function setServers(name: string, changes: unknown) {
+  const s = sessions.get(name)
+  if (!s) throw new Error(`no session "${name}"`)
+  return applyLaunch(name, { mcp_servers: mergeServers(s.mcp_servers, changes) })
+}
+
 /** Checked launch_model / launch_effort fields from a request ('' or 'default' clears one). */
 export function launchFields(opts: { model?: unknown; effort?: unknown }): Partial<Session> {
   const clear = (v: unknown) => v === '' || v === 'default' || v === null
@@ -146,9 +202,13 @@ export function launchFields(opts: { model?: unknown; effort?: unknown }): Parti
  *  effect at the next start: now, if the session is idle; otherwise once it has finished and been idle a
  *  little while (the change makes it out of date, so it is refreshed like after a Neural update). */
 export async function setLaunch(name: string, opts: { model?: unknown; effort?: unknown }): Promise<'restarted' | 'when idle' | 'next start'> {
-  const s = sessions.get(name)
-  if (!s) throw new Error(`no session "${name}"`)
-  sessions.update(name, launchFields(opts))
+  if (!sessions.get(name)) throw new Error(`no session "${name}"`)
+  return applyLaunch(name, launchFields(opts))
+}
+
+/** Store launch settings and bring the session onto them: now if idle, else once it is (see setLaunch). */
+async function applyLaunch(name: string, fields: Partial<Session>): Promise<'restarted' | 'when idle' | 'next start'> {
+  sessions.update(name, fields)
   sessionChanged(name)
   const now = sessions.get(name)!
   if (now.status === 'stopped' || now.status === 'exited') return 'next start'
@@ -192,9 +252,10 @@ function canResume(s: Session) {
 
 export async function startSession(
   name: string,
-  opts: { cwd?: string; role?: 'orchestrator' | 'worker'; autostart?: boolean; resume?: boolean; model?: unknown; effort?: unknown } = {},
+  opts: { cwd?: string; role?: 'orchestrator' | 'worker'; autostart?: boolean; resume?: boolean; model?: unknown; effort?: unknown; mcpServers?: unknown } = {},
 ): Promise<Session> {
   const launch = launchFields(opts)
+  if (opts.mcpServers !== undefined) launch.mcp_servers = mergeServers(sessions.get(name)?.mcp_servers ?? null, opts.mcpServers)
   if (!validName(name)) throw new Error(`invalid session name "${name}" (lowercase letters, digits, - and _, up to 32 characters)`)
   const existing = sessions.get(name)
   const cwd = opts.cwd ?? existing?.cwd

@@ -31,7 +31,8 @@ if (arg('--resume') && !fs.existsSync(transcript)) {
   process.exit(1)
 }
 const settings = JSON.parse(fs.readFileSync(arg('--settings')!, 'utf8'))
-const mcpConfig = JSON.parse(fs.readFileSync(arg('--mcp-config')!, 'utf8')).mcpServers.neural
+const mcpServers = JSON.parse(fs.readFileSync(arg('--mcp-config')!, 'utf8')).mcpServers
+const mcpConfig = mcpServers.neural
 
 const hook = async (event: string, extra: Record<string, unknown> = {}) => {
   const url = settings.hooks?.[event]?.[0]?.hooks?.[0]?.url
@@ -84,7 +85,7 @@ if (name?.startsWith('dlg') && !arg('--resume')) {
   console.clear()
 }
 
-console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId} model=${arg('--model') ?? 'default'} effort=${arg('--effort') ?? 'default'}`)
+console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId} model=${arg('--model') ?? 'default'} effort=${arg('--effort') ?? 'default'} servers=${Object.keys(mcpServers).sort().join(',')}`)
 
 const client = new Client({ name: 'fake-claude', version: '0' }, { capabilities: {} })
 // Like Claude Code, announce each tool call to the PreToolUse hook first.

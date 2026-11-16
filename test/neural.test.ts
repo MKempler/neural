@@ -1251,6 +1251,29 @@ test('a session sets a status note that main and Home can see', async () => {
   await idle('hw')
 })
 
+test('a session can get extra MCP servers, at the start or later, and the app sees only their names', async () => {
+  await idle('main')
+  const tool = async (name: string, args: unknown) => {
+    const sent = await say('main', `tool ${name} ${JSON.stringify(args)}`)
+    return (await messageWhere(`${name} result`, m => m.from_name === 'main' && m.in_reply_to === sent.id)).body as string
+  }
+  assert.match(await tool('spawn_session', { name: 'studio', cwd: tmp, mcp_servers: { neural: { command: 'x' } } }), /^ERROR bad MCP server name "neural"/)
+  assert.match(await tool('spawn_session', { name: 'studio', cwd: tmp, mcp_servers: { s: { args: ['x'] } } }), /^ERROR MCP server "s" needs a command/)
+  await tool('spawn_session', { name: 'studio', cwd: tmp, initial_prompt: 'hi studio', mcp_servers: { roblox: { command: 'node', args: ['server.js'], env: { TOKEN: 'abc123' } } } })
+  await messageWhere('studio answers', m => m.from_name === 'studio' && m.body === 'echo: hi studio')
+  await idle('studio')
+  assert.match((await get('/api/screen/studio')).screen, /servers=neural,roblox/)
+  const s = await session('studio')
+  assert.deepEqual(s.mcp_servers, ['roblox']) // names only: env can hold keys
+  assert.match(await tool('list_sessions', {}), /"mcp_servers": \[\s*"roblox"\s*\]/)
+  // Swap one for another while idle: restarted with them, conversation resumed.
+  assert.match(await tool('set_mcp_servers', { name: 'studio', mcp_servers: { roblox: null, docs: { type: 'http', url: 'https://example.com/mcp' } } }), /Restarted with them now/)
+  await until('restarted with docs', async () => /resumed .* servers=docs,neural$/m.test((await get('/api/screen/studio')).screen))
+  await idle('studio')
+  await (await import('../server/src/spawner.ts')).removeSession('studio')
+  await idle('main')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

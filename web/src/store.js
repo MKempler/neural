@@ -9,6 +9,7 @@ export const health = signal({})
 export const liveTerminal = signal(false)
 /** The account's usage limits from the status line: { five_hour, seven_day } windows, or null. */
 export const usage = signal(null)
+export const jobs = signal(/** @type {any[] | null} */ (null))
 /** The short answers offered above the message box, shared by every device. */
 export const quickReplies = signal([])
 export const quickRepliesOpen = signal(false)
@@ -85,6 +86,10 @@ export async function loadState() {
   })
   // Threads that are open get refreshed too, to catch anything missed while disconnected.
   await Promise.all(Object.keys(threads.value).map(loadThread))
+}
+
+export async function loadJobs() {
+  jobs.value = await api('GET', '/api/jobs').catch(() => [])
 }
 
 export async function loadThread(name) {
@@ -189,6 +194,13 @@ function handle(ev) {
       break
     case 'question_closed':
       questions.value = questions.value.filter(q => q.id !== ev.id)
+      break
+    case 'job':
+      if (jobs.value) jobs.value = [...jobs.value.filter(j => j.name !== ev.job.name), ev.job].sort((a, b) => a.name.localeCompare(b.name))
+      else loadJobs()
+      break
+    case 'job_removed':
+      if (jobs.value) jobs.value = jobs.value.filter(j => j.name !== ev.name)
       break
     case 'prefs':
       if (ev.quickReplies) quickReplies.value = ev.quickReplies

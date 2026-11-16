@@ -124,6 +124,14 @@ attempts, and starts the waiting sessions again once Claude Code works. The app 
 whether Neural is retrying, and `main` gets a short message when a session goes down, keeps crashing or is
 healthy again, so it can deal with it and tell you only when it can't. A session you stop stays stopped.
 
+### Scheduled jobs
+
+Sessions schedule recurring work with `add_job`: a shell command or a prompt to a session, on a schedule such
+as `every 30m`, `daily 08:00`, `weekdays 09:30` or cron. Neural runs it with your login shell's PATH (so
+`claude`, `node` and Homebrew tools are found, unlike under launchd), keeps each run's output, and tells `main`
+when a job fails, keeps failing (with a push notification after 3 failures in a row) or works again. Jobs are
+listed on Home and in Sessions, with Run now, Pause and Delete.
+
 ### Messages from scripts and jobs
 
 Anything on the Mac can send a message with the command line, for example a launchd job reporting a failure:

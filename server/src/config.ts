@@ -82,6 +82,8 @@ export const config = {
   quotaHold: (env('QUOTA_HOLD') ?? (file.quotaHold === false ? 'off' : 'on')) !== 'off',
   recoveredAfterMs: Number(env('RECOVERED_MS') ?? 60_000),
   retryMs: Number(env('RETRY_MS') ?? 10_000),
+  // How often to look for scheduled jobs that are due.
+  jobsMs: Number(env('JOBS_MS') ?? 20_000),
   // Files attached to messages, and the largest single file accepted.
   uploadsDir: env('UPLOADS_DIR') ?? path.join(dataDir, 'uploads'),
   maxUploadBytes: Number(env('MAX_UPLOAD_MB') ?? 1024) * 2 ** 20,

@@ -53,6 +53,7 @@ Object.assign(process.env, {
   NEURAL_REFRESH_IDLE_MS: '500',
   NEURAL_RESTART_BACKOFF_MS: '300',
   NEURAL_RECOVERED_MS: '500',
+  NEURAL_JOBS_MS: '300',
 })
 
 const killTmux = () => {
@@ -1169,6 +1170,65 @@ test('scripts and jobs send messages with `neural notify`, which needs the secre
   const bad = await cli(['--to', 'nobody', 'hello'])
   assert.equal(bad.code, 1)
   assert.match(bad.err, /no session "nobody"/)
+  await idle('main')
+})
+
+test('job schedules: intervals, daily and weekday times, and cron', async () => {
+  const { nextRun, parseSchedule } = await import('../server/src/jobs.ts')
+  const fri = new Date(2026, 10, 13, 10, 0).getTime() // a Friday, 10:00
+  const at = (t: number) => { const d = new Date(t); return [d.getDay(), d.getHours(), d.getMinutes()] }
+  assert.equal(nextRun('every 30m', fri) - fri, 30 * 60_000)
+  assert.deepEqual(at(nextRun('daily 08:00', fri)), [6, 8, 0])
+  assert.deepEqual(at(nextRun('weekdays 09:30', fri)), [1, 9, 30])
+  assert.deepEqual(at(nextRun('mon,thu 18:00', fri)), [1, 18, 0])
+  assert.deepEqual(at(nextRun('*/15 * * * *', fri)), [5, 10, 15])
+  assert.deepEqual(at(nextRun('0 8 * * 1-5', fri)), [1, 8, 0])
+  assert.throws(() => parseSchedule('sometimes'), /schedule must be like/)
+  assert.throws(() => parseSchedule('every 10s'), /schedule must be like|at most once a minute/)
+  assert.throws(() => parseSchedule('61 * * * *'), /bad schedule field/)
+})
+
+test('scheduled jobs run with a proper PATH, keep their output, and report failures to main', async () => {
+  await idle('main')
+  const tool = async (name: string, args: unknown) => {
+    const sent = await say('main', `tool ${name} ${JSON.stringify(args)}`)
+    return (await messageWhere(`${name} result`, m => m.from_name === 'main' && m.in_reply_to === sent.id)).body as string
+  }
+  const told = async (re: RegExp) => (await get('/api/messages?limit=500')).filter((m: any) => m.from_name === 'neural' && m.to_name === 'main' && re.test(m.body))
+  // claude is found, as in a terminal (the stand-in lives outside the hub's own PATH).
+  assert.match(await tool('add_job', { name: 'flaky', schedule: 'daily 03:00', command: 'command -v claude; echo nope >&2; exit 3', cwd: tmp }), /"next_run_at"/)
+  const first = await tool('run_job', { name: 'flaky' })
+  assert.match(first, /"status": "failed"/)
+  assert.match(first, /"exit_code": 3/)
+  assert.ok(first.includes(claudeBin), first)
+  const failed = await messageWhere('main told', m => m.from_name === 'neural' && /\*\*Job flaky failed\*\*: exited with status 3/.test(m.body))
+  assert.match(failed.body, /nope/)
+  await tool('run_job', { name: 'flaky' })
+  assert.equal((await told(/Job flaky/)).length, 1) // the second failure in a row adds nothing
+  await tool('run_job', { name: 'flaky' })
+  await messageWhere('keeps failing', m => m.from_name === 'neural' && /\*\*Job flaky keeps failing\*\*: 3 runs in a row/.test(m.body))
+  // Fixed (same name replaces it), and due: the timer runs it.
+  await tool('add_job', { name: 'flaky', schedule: 'daily 03:00', command: 'echo fine', cwd: tmp })
+  const { db } = await import('../server/src/db.ts')
+  db.prepare("UPDATE jobs SET next_run_at = '2000-01-01T00:00:00.000Z' WHERE name = 'flaky'").run()
+  await messageWhere('works again', m => m.from_name === 'neural' && /\*\*Job flaky works again\*\* after 3 failed runs/.test(m.body))
+  const listed = (await get('/api/jobs')).find((j: any) => j.name === 'flaky')
+  assert.equal(listed.last_run.status, 'ok')
+  assert.equal(listed.last_run.output_tail, 'fine')
+  assert.ok(Date.parse(listed.next_run_at) > Date.now())
+  const detail = await get('/api/jobs/flaky')
+  assert.equal(detail.runs.length, 4)
+  assert.equal(detail.runs[0].trigger, 'schedule')
+  // A prompt job: a message to a session, from the job.
+  await tool('add_job', { name: 'nudge', schedule: 'every 6h', session: 'hw', prompt: 'echo: from the nudge job' })
+  await tool('run_job', { name: 'nudge' })
+  await messageWhere('the prompt sent', m => m.from_name === 'job:nudge' && m.to_name === 'hw' && m.body === 'echo: from the nudge job')
+  assert.match(await tool('add_job', { name: 'bad', schedule: 'daily 03:00' }), /^ERROR give either command, or session and prompt/)
+  await tool('pause_job', { name: 'nudge' })
+  assert.equal((await get('/api/jobs')).find((j: any) => j.name === 'nudge').enabled, false)
+  await tool('remove_job', { name: 'nudge' })
+  assert.equal((await api('DELETE', '/api/jobs/flaky')).status, 200)
+  assert.deepEqual(await get('/api/jobs'), [])
   await idle('main')
 })
 

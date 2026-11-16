@@ -10,6 +10,7 @@ import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, v
 import * as projects from './projects.ts'
 import * as health from './health.ts'
 import * as usage from './usage.ts'
+import * as jobs from './jobs.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -658,6 +659,22 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
         priority: s.priority, usage_share: usage.shareOf(s.name, all),
         model: s.model, effort: s.effort, launch: { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' },
       }))
+    }
+    case 'add_job':
+      return jobs.addJob(caller, a)
+    case 'list_jobs':
+      return jobs.jobs.all().map(jobs.view)
+    case 'remove_job':
+      jobs.removeJob(String(a.name))
+      return { removed: a.name }
+    case 'pause_job':
+      return jobs.setEnabled(String(a.name), a.paused === false)
+    case 'run_job': {
+      // Wait a while for the result; a long run carries on, and a failure is reported as usual.
+      const run = jobs.runJob(String(a.name))
+      const r = await Promise.race([run, new Promise<null>(res => setTimeout(() => res(null), 45_000))])
+      if (!r) return { name: a.name, status: 'running', note: 'Still running. You are told if it fails; list_jobs shows the result.' }
+      return { name: a.name, status: r.status, exit_code: r.exit_code, output_tail: (r.output ?? '').trimEnd().split('\n').slice(-30).join('\n') }
     }
     case 'set_model': {
       if (a.model === undefined && a.effort === undefined) throw new Error('give model, effort or both')

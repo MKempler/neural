@@ -86,6 +86,22 @@ const ORCHESTRATOR_TOOLS = [
   }, ['name', 'until']),
 ]
 
+const JOB_TOOLS = [
+  tool('add_job', 'Schedule a job that Neural runs: a shell command (run with your login PATH, so claude, node and Homebrew tools are found), or a prompt sent to a session. Its output is kept, and failures are reported (to main, and to you if you set it up), so prefer this to launchd or cron. Adding a job with an existing name replaces it.', {
+    name: str('Short name: lowercase letters, digits, . _ -'),
+    schedule: str('"every 30m", "every 6h", "daily 08:00", "weekdays 09:30", "mon,thu 18:00", or cron "0 8 * * 1-5" (local time)'),
+    command: str('Shell command to run (sh -c). Exit status 0 means success'),
+    cwd: str('Folder to run it in (default: your working directory)'),
+    session: str('Instead of a command: the session to send prompt to'),
+    prompt: str('With session: the message to send it'),
+    timeout_s: int('Stop the command after this many seconds (default 3600)'),
+  }, ['name', 'schedule']),
+  tool('list_jobs', 'List scheduled jobs with their schedule, next run, last result and output tail.', {}),
+  tool('run_job', 'Run a job now and return its result (waits up to 45 seconds).', { name: str('Job name') }, ['name']),
+  tool('pause_job', 'Pause a job, or resume it with paused: false.', { name: str('Job name'), paused: { type: 'boolean', description: 'false to resume (default true)' } }, ['name']),
+  tool('remove_job', 'Delete a scheduled job and its run history.', { name: str('Job name') }, ['name']),
+]
+
 const INSTRUCTIONS = [
   `You are the Claude session named "${NAME}" in Neural, the user's command center${ROLE === 'orchestrator' ? ', and you are the orchestrator: you can start, stop and direct other sessions' : ''}.`,
   'Messages arrive as <channel source="neural" from="..." msg_id="...">.',
@@ -110,7 +126,7 @@ const mcp = new Server(
 )
 
 mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: ROLE === 'orchestrator' ? [...TOOLS, ...ORCHESTRATOR_TOOLS] : TOOLS,
+  tools: ROLE === 'orchestrator' ? [...TOOLS, ...JOB_TOOLS, ...ORCHESTRATOR_TOOLS] : [...TOOLS, ...JOB_TOOLS],
 }))
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {

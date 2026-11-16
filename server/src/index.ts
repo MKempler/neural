@@ -22,6 +22,7 @@ import * as usage from './usage.ts'
 import * as projects from './projects.ts'
 import { scrubArchive } from './scrub.ts'
 import * as health from './health.ts'
+import * as jobs from './jobs.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup, setLaunch } from './spawner.ts'
@@ -201,6 +202,25 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       const body = await readJson(req)
       return notifyFrom(String(body.from ?? ''), String(body.to ?? 'user'), String(body.text ?? ''), body.files)
     }
+    case 'GET jobs':
+      if (name) {
+        const j = jobs.jobs.get(name)
+        if (!j) throw new HttpError(404, 'no such job')
+        return { ...jobs.view(j), runs: jobs.jobs.runs(j.id, 20) }
+      }
+      return jobs.jobs.all().map(jobs.view)
+    case 'POST jobs': {
+      const action = parts[2]
+      if (action === 'run') {
+        void jobs.runJob(name).catch(() => {}) // the result arrives as a 'job' event
+        return { started: name }
+      }
+      if (action === 'pause' || action === 'resume') return jobs.setEnabled(name, action === 'resume')
+      throw new HttpError(404, 'unknown action')
+    }
+    case 'DELETE jobs':
+      jobs.removeJob(name)
+      return { ok: true }
     case 'GET usage':
       // The limits, and who used how much of each window.
       return { account: usage.account(), shares: usage.shares() }
@@ -533,7 +553,9 @@ export async function start() {
       }
     }, ms).unref()
   }
+  jobs.markInterrupted()
   tick(reconcile, config.reconcileMs)
+  tick(jobs.runDue, config.jobsMs)
   tick(retryStale, config.retryMs)
   tick(async () => void (await ingestAll()), config.ingestMs)
   tick(async () => void (await embedPending()), config.embedMs)

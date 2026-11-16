@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { html, ago, clock, plain, excerpt, shortPath, fmtNumber, modelChip } from '../lib.js'
 import { Icon } from '../icons.js'
+import { JobsSection } from '../components/Jobs.js'
 import { Composer, Dot, DownInfo, PermissionCard, StatusPill, Link, downOf } from '../components/parts.js'
 import { NotifySetup } from '../push.js'
 import { UsageMeter, ContextChip } from '../components/Usage.js'
@@ -56,6 +57,8 @@ export function Home() {
         <button class="card new" onClick=${() => (newSessionOpen.value = true)}><${Icon} name="plus" />New session</button>
       </div>
     </section>
+
+    <${JobsSection} />
 
     <${Activity} />
     <${NotifySetup} />
@@ -159,5 +162,6 @@ export function Sessions() {
       ${list.map(s => html`<${SessionCard} s=${s} key=${s.name} />`)}
       <button class="card new" onClick=${() => (newSessionOpen.value = true)}><${Icon} name="plus" />New session</button>
     </div>
+    <${JobsSection} />
   </div></div>`
 }

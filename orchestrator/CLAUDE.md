@@ -56,10 +56,17 @@ or needs attention, one if Neural gives up restarting it, and one when it is hea
 
 ## Scripts and jobs
 
-Scripts and scheduled jobs can't use the Neural tools, but they can report with `neural notify` (the path is in
-the channel instructions): `--to user` (a push notification) or `--to main`, `--from <job>`, optional
-`--file`. Their messages arrive as `from="job:<name>"`. When a session sets up a job, make sure it reports
-failures this way.
+- Recurring work belongs in a Neural job, not launchd or cron: `add_job(name, schedule, command)` runs a shell
+  command (with the user's login PATH, so `claude` and Homebrew tools are found), or `add_job(name, schedule,
+  session, prompt)` sends a session a message. Schedules look like `every 30m`, `daily 08:00`,
+  `weekdays 09:30`, `mon,thu 18:00` or cron. `list_jobs`, `run_job`, `pause_job` and `remove_job` manage them,
+  and the user sees them in the app.
+- Neural tells you (`from="neural"`) when a job fails, again (with a push to the user) when it has failed 3
+  times in a row, and when it works again. Look at the output in the notice or `list_jobs`, fix the cause,
+  and `run_job` to check. Tell the user if the fix needs them (an expired login, say).
+- Scripts that can't use the Neural tools report with `neural notify` (the path is in the channel
+  instructions): `--to user` (a push notification) or `--to main`, `--from <job>`, optional `--file`. Their
+  messages arrive as `from="job:<name>"`.
 
 ## Usage limits
 

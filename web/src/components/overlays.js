@@ -65,6 +65,7 @@ export function ModelSheet() {
     sendNow(name, command)
     close()
   }
+  const keep = choice => sessionAction(name, 'launch', choice).catch(e => alert(e.message))
   return html`<${Overlay} onClose=${close} label="Model and effort">
     <div class="sheet model-sheet">
       <div class="sheet-head"><h2>Model and effort · <span class="mono">${name}</span></h2>
@@ -79,6 +80,13 @@ export function ModelSheet() {
         <p class="hint">These run as <span class="mono">/effort</span> and <span class="mono">/model</span> in ${name}'s terminal. You can also type
           any slash command, like <span class="mono">/model sonnet</span> or <span class="mono">/compact</span>, straight into the message box.
           The display updates after the session's next reply.</p>
+        <div class="field"><span>Start with (kept after restarts)</span>
+          <div class="chips">${['default', 'opus', 'sonnet', 'haiku'].map(m => html`<button class=${`chip ${(s.launch_model ?? 'default') === m ? 'on' : ''}`}
+            onClick=${() => keep({ model: m })}>${m}</button>`)}</div>
+          <div class="chips">${['default', ...EFFORTS].map(e => html`<button class=${`chip ${(s.launch_effort ?? 'default') === e ? 'on' : ''}`}
+            onClick=${() => keep({ effort: e })}>${e}</button>`)}</div>
+        </div>
+        <p class="hint">An idle session restarts with it straight away and resumes its conversation; a busy one switches after its turn.</p>
       </div>
     </div>
   </${Overlay}>`

@@ -63,6 +63,9 @@ All sessions share one plan, so its 5-hour and weekly limits are the main constr
 - Mark work that can wait with `set_priority(name, "low")` (or `priority` in `spawn_session`); `high` for what
   the user is waiting on. From 95%, Neural holds messages from other sessions (and from you) to low-priority
   sessions until the limit resets; the user's own messages still go through.
+- Run routine work (pipelines, formatting, simple edits) on a cheaper model: `spawn_session(..., model:
+  "sonnet" or "haiku", effort: "low")`, or `set_model(name, model, effort)` on an existing session. The choice
+  is kept across restarts; `list_sessions` shows it. Keep demanding work on the default.
 - Near a limit, finish or pause what is running rather than starting new sessions, and tell the user what you
   paused.
 

@@ -24,7 +24,7 @@ import { scrubArchive } from './scrub.ts'
 import * as health from './health.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
-import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
+import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup, setLaunch } from './spawner.ts'
 
 const WEB = path.join(ROOT, 'web')
 const TYPES: Record<string, string> = {
@@ -154,6 +154,11 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         const action = parts[2]
         if (action === 'stop') return stopSession(name).then(() => sessions.get(name))
         if (action === 'restart') return restartSession(name)
+        if (action === 'launch') {
+          const body = await readJson(req)
+          const when = await setLaunch(name, { model: body.model, effort: body.effort })
+          return { ...sessions.get(name), applies: when }
+        }
         if (action === 'priority') {
           setPriority(name, (await readJson(req)).priority)
           return sessions.get(name)
@@ -180,7 +185,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         throw new HttpError(404, 'unknown action')
       }
       const body = await readJson(req)
-      const s = await startSession(String(body.name ?? ''), { cwd: body.cwd, role: body.role === 'orchestrator' ? 'orchestrator' : 'worker' })
+      const s = await startSession(String(body.name ?? ''), { cwd: body.cwd, role: body.role === 'orchestrator' ? 'orchestrator' : 'worker', model: body.model, effort: body.effort })
       if (body.prompt) sendMessage({ from: 'user', to: s.name, body: String(body.prompt), source: 'ui' })
       return s
     }

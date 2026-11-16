@@ -1120,6 +1120,33 @@ test('the quota guard: alerts at 80% and 95% with who used it, and low-priority 
   await idle('main')
 })
 
+test('a session can be started on a model and effort, kept across restarts, and switched later', async () => {
+  await idle('main')
+  const tool = async (name: string, args: unknown) => {
+    const sent = await say('main', `tool ${name} ${JSON.stringify(args)}`)
+    return (await messageWhere(`${name} result`, m => m.from_name === 'main' && m.in_reply_to === sent.id)).body as string
+  }
+  assert.match(await tool('spawn_session', { name: 'cheap', cwd: tmp, model: 'haiku', effort: 'max2' }), /^ERROR effort must be one of/)
+  assert.equal(await session('cheap'), undefined) // nothing started
+  await tool('spawn_session', { name: 'cheap', cwd: tmp, model: 'haiku', effort: 'low', initial_prompt: 'hi cheap' })
+  await messageWhere('cheap answers', m => m.from_name === 'cheap' && m.body === 'echo: hi cheap')
+  await idle('cheap')
+  assert.match((await get('/api/screen/cheap')).screen, /started .* model=haiku effort=low/)
+  const listed = await tool('list_sessions', {})
+  assert.match(listed, /"launch": \{\s*"model": "haiku",\s*"effort": "low"/)
+  // Switched while idle: restarted at once with the new model, the effort kept, the conversation resumed.
+  assert.match(await tool('set_model', { name: 'cheap', model: 'sonnet' }), /Restarted with it now/)
+  await until('restarted on sonnet', async () => /resumed .* model=sonnet effort=low/.test((await get('/api/screen/cheap')).screen))
+  await idle('cheap')
+  // From the app: back to the default model.
+  const r = await api('POST', '/api/sessions/cheap/launch', { model: 'default' })
+  assert.equal(r.body.launch_model, null)
+  await until('restarted on the default', async () => /resumed .* model=default effort=low/.test((await get('/api/screen/cheap')).screen))
+  await idle('cheap')
+  await (await import('../server/src/spawner.ts')).removeSession('cheap')
+  await idle('main')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

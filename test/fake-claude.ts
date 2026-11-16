@@ -84,7 +84,7 @@ if (name?.startsWith('dlg') && !arg('--resume')) {
   console.clear()
 }
 
-console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId}`)
+console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId} model=${arg('--model') ?? 'default'} effort=${arg('--effort') ?? 'default'}`)
 
 const client = new Client({ name: 'fake-claude', version: '0' }, { capabilities: {} })
 // Like Claude Code, announce each tool call to the PreToolUse hook first.

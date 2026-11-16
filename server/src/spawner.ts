@@ -99,7 +99,7 @@ function writeRunFiles(s: Session) {
  *  starts. A session launched with a different one is out of date. */
 export function launchRev(s: Session): string {
   const { mcp, settings, own } = runConfig(s)
-  const h = crypto.createHash('sha256').update(JSON.stringify({ mcp, settings, own, flags: FLAGS }))
+  const h = crypto.createHash('sha256').update(JSON.stringify({ mcp, settings, own, flags: [...FLAGS, ...sessionFlags(s)] }))
   for (const f of ['channel/neural-channel.ts', 'channel/statusline.sh']) h.update(fs.readFileSync(path.join(ROOT, f)))
   // The orchestrator's guide is read at launch too.
   if (s.role === 'orchestrator') {
@@ -120,6 +120,45 @@ const FLAGS = [
   '--dangerously-load-development-channels', 'server:neural',
 ]
 
+/** The model and effort chosen for this session, if any. */
+function sessionFlags(s: Session) {
+  return [...(s.launch_model ? ['--model', s.launch_model] : []), ...(s.launch_effort ? ['--effort', s.launch_effort] : [])]
+}
+
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+/** Checked launch_model / launch_effort fields from a request ('' or 'default' clears one). */
+export function launchFields(opts: { model?: unknown; effort?: unknown }): Partial<Session> {
+  const clear = (v: unknown) => v === '' || v === 'default' || v === null
+  const fields: Partial<Session> = {}
+  if (opts.model !== undefined) {
+    if (!clear(opts.model) && !/^[A-Za-z0-9._\[\]-]{1,64}$/.test(String(opts.model))) throw new Error('model must be an alias like sonnet or opus, or a full model name')
+    fields.launch_model = clear(opts.model) ? null : String(opts.model)
+  }
+  if (opts.effort !== undefined) {
+    if (!clear(opts.effort) && !EFFORTS.includes(String(opts.effort))) throw new Error(`effort must be one of ${EFFORTS.join(', ')}`)
+    fields.launch_effort = clear(opts.effort) ? null : String(opts.effort)
+  }
+  return fields
+}
+
+/** Choose the model and effort a session starts with ('' or 'default' for Claude Code's default). It takes
+ *  effect at the next start: now, if the session is idle; otherwise once it has finished and been idle a
+ *  little while (the change makes it out of date, so it is refreshed like after a Neural update). */
+export async function setLaunch(name: string, opts: { model?: unknown; effort?: unknown }): Promise<'restarted' | 'when idle' | 'next start'> {
+  const s = sessions.get(name)
+  if (!s) throw new Error(`no session "${name}"`)
+  sessions.update(name, launchFields(opts))
+  sessionChanged(name)
+  const now = sessions.get(name)!
+  if (now.status === 'stopped' || now.status === 'exited') return 'next start'
+  if (now.status === 'idle' && now.channel_connected) {
+    await restartSession(name)
+    return 'restarted'
+  }
+  return config.autoRefresh ? 'when idle' : 'next start'
+}
+
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
 /** The status line command the user set up for Claude Code (local project, project, then user settings), if any. */
@@ -138,7 +177,7 @@ function ownStatusLine(cwd: string): string | null {
 
 export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
   const { mcpFile, settingsFile } = writeRunFiles(s)
-  const argv = [resolveClaude(), '--name', s.name, '--mcp-config', mcpFile, '--settings', settingsFile, ...FLAGS]
+  const argv = [resolveClaude(), '--name', s.name, '--mcp-config', mcpFile, '--settings', settingsFile, ...FLAGS, ...sessionFlags(s)]
   if (opts.resume && canResume(s)) argv.push('--resume', s.claude_session_id!)
   return argv
 }
@@ -153,8 +192,9 @@ function canResume(s: Session) {
 
 export async function startSession(
   name: string,
-  opts: { cwd?: string; role?: 'orchestrator' | 'worker'; autostart?: boolean; resume?: boolean } = {},
+  opts: { cwd?: string; role?: 'orchestrator' | 'worker'; autostart?: boolean; resume?: boolean; model?: unknown; effort?: unknown } = {},
 ): Promise<Session> {
+  const launch = launchFields(opts)
   if (!validName(name)) throw new Error(`invalid session name "${name}" (lowercase letters, digits, - and _, up to 32 characters)`)
   const existing = sessions.get(name)
   const cwd = opts.cwd ?? existing?.cwd
@@ -165,6 +205,7 @@ export async function startSession(
 
   const role = opts.role ?? existing?.role ?? 'worker'
   sessions.create(name, role, cwd, opts.autostart ?? (existing ? Boolean(existing.autostart) : role === 'orchestrator'))
+  if (Object.keys(launch).length) sessions.update(name, launch)
   const s = sessions.get(name)!
   turns.delete(name)
   permissions.expire(name)

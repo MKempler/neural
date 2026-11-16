@@ -129,7 +129,9 @@ healthy again, so it can deal with it and tell you only when it can't. A session
 - **Every session:** `reply`, `send_message`, `list_sessions`, `search_history`, `get_thread`.
 - **The orchestrator also gets:** `spawn_session`, `stop_session`, `restart_session`, `read_screen`,
   `wait_for`. A blocking `wait_for` returns early when a message arrives, and `wait_for(notify: true)`
-  doesn't block at all: Neural sends a message when the session gets there.
+  doesn't block at all: Neural sends a message when the session gets there. `spawn_session` takes `model` and
+  `effort` (Claude Code's `--model` and `--effort`, kept across restarts), `set_model` changes them on a
+  running session, and `set_priority` marks it high, normal or low.
 
 ## Get started
 

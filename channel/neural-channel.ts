@@ -56,7 +56,14 @@ const ORCHESTRATOR_TOOLS = [
     github_repo: { type: 'boolean', description: 'With new_project: also create a private GitHub repository for it as origin. Only when the user asked for one' },
     clone: str('owner/name of a GitHub repository to clone into the projects folder and work in'),
     initial_prompt: str('First message to send it'),
+    model: str('Model to run it on, kept across restarts: an alias (sonnet, opus, haiku) or a full model name. Default: Claude Code\'s default. A cheaper model saves quota for routine work'),
+    effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'Effort level, kept across restarts (default: Claude Code\'s default)' },
     priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'low: work that can wait. Near a usage limit Neural holds messages from other sessions to it until the reset (default normal)' },
+  }, ['name']),
+  tool('set_model', 'Change the model and/or effort a session runs on, kept across restarts. An idle session is restarted with it at once (its conversation resumes); a busy one switches after its turn. Use "default" to go back to Claude Code\'s default.', {
+    name: str('Session name'),
+    model: str('Alias (sonnet, opus, haiku), full model name, or "default"'),
+    effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max', 'default'] },
   }, ['name']),
   tool('set_priority', 'Mark a session high, normal or low priority. Near a usage limit, low-priority sessions are the ones to pause: Neural holds messages from other sessions to them until the limit resets (the user\'s messages still go through).', {
     name: str('Session name'),

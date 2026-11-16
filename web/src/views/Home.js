@@ -121,6 +121,7 @@ export function SessionCard({ s }) {
       ${s.context?.used >= 80 && html`<span class="tag warn"><${ContextChip} s=${s} /></span>`}
       <span class="cwd" title=${s.cwd}>${shortPath(s.cwd)}</span>
     </div>
+    ${s.note && html`<p class="card-note" title=${`Set ${ago(s.note_at)} ago`}>${s.note}</p>`}
     <p class="card-excerpt">${m ? html`${from && html`<span class="from">${from}: </span>`}${excerpt(m)}` : html`<span class="muted">No messages yet</span>`}</p>
     <div class="card-foot">
       <span>${m ? ago(m.ts) : ago(s.created_at)}</span>

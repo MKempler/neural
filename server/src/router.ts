@@ -1,7 +1,7 @@
 import { config } from './config.ts'
 import { sessions, messages, outbox, events, permissions, questions, type Message } from './db.ts'
 import { Driver, type PlanAnswer, type QuestionAnswer } from './dialogs.ts'
-import { redact } from './redact.ts'
+import { redact, clean } from './redact.ts'
 import { searchAll } from './embed.ts'
 import { broadcast, bus, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
 import { notify } from './push.ts'
@@ -656,9 +656,16 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       const all = usage.shares()
       return sessions.all().map(s => ({
         name: s.name, role: s.role, status: s.status, cwd: s.cwd, connected: Boolean(s.channel_connected), you: s.name === caller,
+        note: s.note ? { text: s.note, at: s.note_at } : null,
         priority: s.priority, usage_share: usage.shareOf(s.name, all),
         model: s.model, effort: s.effort, launch: { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' },
       }))
+    }
+    case 'set_status': {
+      const note = clean(String(a.note ?? '').replace(/\s+/g, ' ').trim()).slice(0, 200)
+      sessions.update(caller, { note: note || null, note_at: note ? new Date().toISOString() : null })
+      sessionChanged(caller)
+      return { note: note || null }
     }
     case 'add_job':
       return jobs.addJob(caller, a)

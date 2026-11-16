@@ -919,3 +919,5 @@ button.result:hover { background: var(--surface-2); }
 .job-last { color: var(--text-2); font-size: var(--fs-sm); }
 .job-detail .detail { margin: 0; padding: 8px 10px; border-radius: var(--r); background: var(--bg); border: 1px solid var(--line); color: var(--text-2); font: var(--fs-xs)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
 .job-detail .actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.card-note { margin: 0; padding: 4px 8px; border-radius: var(--r); background: var(--accent-tint); color: var(--text); font-size: var(--fs-sm); line-height: 1.4; overflow-wrap: anywhere; }

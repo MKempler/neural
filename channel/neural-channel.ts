@@ -37,7 +37,10 @@ const TOOLS = [
     files: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of files to attach (up to 10)' },
     in_reply_to: str('The msg_id this answers, when there is one'),
   }, ['to']),
-  tool('list_sessions', 'List the Claude sessions the hub knows, with role, status, working directory, priority, and each one\'s estimated share of the current 5-hour and weekly usage (percent of what all sessions used).', {}),
+  tool('set_status', 'Set a one-line note on where you are, shown to the orchestrator (list_sessions) and the user (Home): the phase, what you are waiting on, the next step. E.g. "waiting on Max: save the place file" or "phase 2 of 3: writing tests". Update it when that changes; an empty note clears it.', {
+    note: str('The note, up to 200 characters; empty to clear'),
+  }, ['note']),
+  tool('list_sessions', 'List the Claude sessions the hub knows, with role, status, working directory, status note, priority, and each one\'s estimated share of the current 5-hour and weekly usage (percent of what all sessions used).', {}),
   tool('search_history', 'Search the permanent history: every message through the hub and every archived Claude Code transcript. Matches by keyword and by meaning, so a plain-language question works. Use it whenever something from an earlier conversation is needed.', {
     query: str('Words or a question to search for'),
     session: str('Only this session'),

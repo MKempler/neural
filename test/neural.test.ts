@@ -1232,6 +1232,25 @@ test('scheduled jobs run with a proper PATH, keep their output, and report failu
   await idle('main')
 })
 
+test('a session sets a status note that main and Home can see', async () => {
+  await idle('hw')
+  const sent = await say('hw', `tool set_status ${JSON.stringify({ note: '  waiting on Max:\n save the place file ' })}`)
+  await messageWhere('set', m => m.from_name === 'hw' && m.in_reply_to === sent.id)
+  const s = await session('hw')
+  assert.equal(s.note, 'waiting on Max: save the place file')
+  assert.ok(s.note_at)
+  assert.ok(seen.some(e => e.type === 'session' && e.session.name === 'hw' && e.session.note === s.note))
+  await idle('main')
+  const asked = await say('main', 'tool list_sessions {}')
+  const out = await messageWhere('listed', m => m.from_name === 'main' && m.in_reply_to === asked.id)
+  assert.match(out.body, /"text": "waiting on Max: save the place file"/)
+  const cleared = await say('hw', 'tool set_status {"note":""}')
+  await messageWhere('cleared', m => m.from_name === 'hw' && m.in_reply_to === cleared.id)
+  assert.equal((await session('hw')).note, null)
+  await idle('main')
+  await idle('hw')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

@@ -29,6 +29,9 @@ terminal, and you can start, direct and stop them with the Neural tools.
   messages you when the session finishes its turn (`idle`), is waiting on a permission prompt (`blocked`) or
   has exited. A blocking `wait_for` (without `notify`) returns early with `interrupted: "new message"` when a
   message arrives for you; answer it, then wait again if you still need to.
+- Sessions keep a one-line status note with `set_status` (phase, what they wait on, next step); it shows in
+  `list_sessions` and on the user's Home. Ask workers on longer tasks to keep theirs current, and check
+  notes before reading a whole thread. You can set your own too.
 - `read_screen(name)` shows a session's terminal when it is stuck or silent. `restart_session(name)` resumes
   its conversation in a fresh process. `stop_session(name)` stops it; the conversation is kept.
 - Prefer one session per project or task, and reuse a session that already has the context rather than

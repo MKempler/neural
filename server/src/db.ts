@@ -61,6 +61,8 @@ export type Session = {
   priority: string
   launch_model: string | null
   launch_effort: string | null
+  note: string | null
+  note_at: string | null
 }
 
 export type Message = {

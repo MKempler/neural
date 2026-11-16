@@ -1324,6 +1324,28 @@ test('a session left at a startup prompt with nobody answering it is picked up a
   await sp.removeSession('dlg2')
 })
 
+test('a session with a background shell still running is not restarted until it finishes', async () => {
+  const { sessions: rows, events } = await import('../server/src/db.ts')
+  const sp = await import('../server/src/spawner.ts')
+  await idle('hw')
+  await say('hw', 'bgshell render')
+  await until('footer shows the shell', async () => /1 shell · ↓ to manage/.test((await get('/api/screen/hw')).screen))
+  await idle('hw')
+  assert.equal(await sp.backgroundWork(rows.get('hw')!), '1 shell')
+  const before = events.recent('hw', 200).filter((e: any) => e.event === 'refresh').length
+  rows.update('hw', { launch_rev: 'older' })
+  await new Promise(r => setTimeout(r, 2000)) // several reconcile passes, idle well past the refresh delay
+  assert.equal(events.recent('hw', 200).filter((e: any) => e.event === 'refresh').length, before)
+  // Switching its model waits too, instead of restarting now.
+  assert.equal(await sp.setLaunch('hw', { effort: 'low' }), 'when idle')
+  await say('hw', 'bgdone')
+  await until('refreshed once the shell is done', () => events.recent('hw', 200).filter((e: any) => e.event === 'refresh').length > before, 20_000)
+  await until('restarted with low effort', async () => /model=default effort=low/.test((await get('/api/screen/hw')).screen))
+  await idle('hw')
+  await sp.setLaunch('hw', { effort: 'default' })
+  await idle('hw')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

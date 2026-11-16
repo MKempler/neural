@@ -115,6 +115,16 @@ client.fallbackNotificationHandler = async (n: any) => {
   }
   await hook('UserPromptSubmit', { prompt: `<channel source="neural" from="${from}" msg_id="${msg_id}">\n${body}\n</channel>` })
   if (body.startsWith('echo:')) return hook('Stop', { last_assistant_message: 'Noted.' }) // don't ping-pong between sessions
+  // A background shell left running after the turn, shown in the footer the way Claude Code shows it.
+  if (body.startsWith('bgshell')) {
+    console.log('✻ Brewed for 4s · done 3:25 PM · 1 shell still running\n' + '─'.repeat(40) + '\n❯ \n' + '─'.repeat(40) + '\n  ⏵⏵ auto mode on · 1 shell · ↓ to manage')
+    return hook('Stop', { last_assistant_message: 'Started it in the background.' })
+  }
+  if (body.startsWith('bgdone')) {
+    console.clear()
+    console.log('The background shell finished.\n❯ \n  ⏵⏵ auto mode on (shift+tab to cycle)')
+    return hook('Stop', { last_assistant_message: 'Done.' })
+  }
   if (from === 'neural') return hook('Stop', { last_assistant_message: 'Noted.' }) // Neural's own notices
   if (body.startsWith('noreply')) return hook('Stop', { last_assistant_message: `terminal answer to ${msg_id}` })
   if (body.startsWith('usage ')) {

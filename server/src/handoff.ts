@@ -77,8 +77,9 @@ export async function check(s: Session) {
   if (s.status !== 'idle' || !s.channel_connected || quietFor < config.handoffIdleMs) return
   if (outbox.pending(s.name).length || outbox.pushed(s.name).length) return
   if (questions.openFor(s.name).length || permissions.open().some(p => p.session === s.name)) return
-  const { mux, freshStart } = await import('./spawner.ts')
+  const { mux, freshStart, backgroundWork } = await import('./spawner.ts')
   if (await mux.attached(s.name)) return // someone is looking at its terminal
+  if (await backgroundWork(s)) return // a background shell or task would be killed
   setState(s.name, null)
   usageStore.remove(s.name) // the old context reading would ask again straight away
   events.add(s.name, 'handoff', { file })

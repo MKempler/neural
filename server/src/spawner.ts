@@ -213,7 +213,7 @@ async function applyLaunch(name: string, fields: Partial<Session>): Promise<'res
   sessionChanged(name)
   const now = sessions.get(name)!
   if (now.status === 'stopped' || now.status === 'exited') return 'next start'
-  if (now.status === 'idle' && now.channel_connected) {
+  if (now.status === 'idle' && now.channel_connected && !(await backgroundWork(now))) {
     await restartSession(name)
     return 'restarted'
   }
@@ -633,6 +633,26 @@ async function tryStart(s: Session, counts: boolean) {
   }
 }
 
+/** Background shells, tasks or agents still running in the session's terminal, as Claude Code's footer shows
+ *  them ("auto mode on · 1 shell · ↓ to manage", "done 3:25 PM · 1 shell still running"). A turn can be over
+ *  while they run, and a restart kills them, so a session with any is busy, not idle. Claude Code reporting
+ *  the session as busy counts too. */
+export async function backgroundWork(s: Session): Promise<string | null> {
+  let screen = ''
+  try {
+    screen = await mux.capture(s.name)
+  } catch {
+    return null
+  }
+  const lines = screen.split('\n').filter(l => l.trim())
+  const footer = lines.slice(-3).join('\n')
+  const m = /·\s*(\d+\s+(?:shells?|background tasks?|tasks?|agents?|monitors?))\b/i.exec(footer)
+    ?? /\b(\d+\s+(?:shells?|background tasks?|tasks?|agents?)) still running\b/i.exec(lines.slice(-10).join('\n'))
+  if (m) return m[1]
+  if ((await claudeAgent(s))?.status === 'busy') return 'busy according to Claude Code'
+  return null
+}
+
 const refreshedAt = new Map<string, number>()
 
 /** Restart a session launched with an older setup, when that interrupts nothing: idle for a while, connected,
@@ -652,6 +672,7 @@ async function refreshIfOutdated(s: Session): Promise<boolean> {
   if (outbox.pending(s.name).length || outbox.pushed(s.name).length) return false
   if (questions.openFor(s.name).length || permissions.open().some(p => p.session === s.name)) return false
   if (await mux.attached(s.name)) return false
+  if (await backgroundWork(s)) return false // a background shell would be killed
   refreshedAt.set(s.name, Date.now())
   events.add(s.name, 'refresh', { from: s.launch_rev, to: rev })
   try {

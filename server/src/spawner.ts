@@ -8,6 +8,7 @@ import { sessions, events, permissions, outbox, usage, questions, type Session }
 import { channels, setStatus, sessionChanged, bus, turns, activity } from './live.ts'
 import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
+import * as health from './health.ts'
 
 export const mux: Mux = new Tmux(config.tmuxSocket)
 
@@ -27,6 +28,23 @@ function resolveClaude(): string {
   claudePath ??= findBin(config.claudeBin) ?? undefined
   if (!claudePath) throw new Error(`cannot find the claude binary (${config.claudeBin}); set NEURAL_CLAUDE_BIN to its full path`)
   return claudePath
+}
+
+/** Can Claude Code run? Checked before every start, so a broken install is named as the cause. */
+export async function checkClaude(opts: { fresh?: boolean } = {}) {
+  let bin: string | null = null
+  try {
+    bin = resolveClaude()
+  } catch {
+    // reported as not found
+  }
+  return health.checkClaude(bin, opts)
+}
+
+/** Throws, with the cause and the fix, when Claude Code can't run. */
+export async function ensureClaude() {
+  const check = await checkClaude()
+  if (!check.ok) throw new Error(`Claude Code's install is broken: ${check.reason}. ${check.hint}`)
 }
 
 // Per-session config files: the hub's MCP server and hooks are passed on the command line,
@@ -83,6 +101,14 @@ export function launchRev(s: Session): string {
   const { mcp, settings, own } = runConfig(s)
   const h = crypto.createHash('sha256').update(JSON.stringify({ mcp, settings, own, flags: FLAGS }))
   for (const f of ['channel/neural-channel.ts', 'channel/statusline.sh']) h.update(fs.readFileSync(path.join(ROOT, f)))
+  // The orchestrator's guide is read at launch too.
+  if (s.role === 'orchestrator') {
+    try {
+      h.update(fs.readFileSync(path.join(s.cwd, 'CLAUDE.md')))
+    } catch {
+      // no guide
+    }
+  }
   return h.digest('hex').slice(0, 16)
 }
 
@@ -113,8 +139,16 @@ function ownStatusLine(cwd: string): string | null {
 export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
   const { mcpFile, settingsFile } = writeRunFiles(s)
   const argv = [resolveClaude(), '--name', s.name, '--mcp-config', mcpFile, '--settings', settingsFile, ...FLAGS]
-  if (opts.resume && s.claude_session_id) argv.push('--resume', s.claude_session_id)
+  if (opts.resume && canResume(s)) argv.push('--resume', s.claude_session_id!)
   return argv
+}
+
+/** Is there a conversation to resume? Claude Code saves one only from its first prompt, and `--resume` of an id
+ *  it never saved exits at once ("No conversation found"), which would turn a session that died before its first
+ *  prompt into a crash loop. Without a resume it starts afresh and its queued first prompt is delivered then. */
+function canResume(s: Session) {
+  if (!s.claude_session_id) return false
+  return !s.transcript_path || fs.existsSync(s.transcript_path)
 }
 
 export async function startSession(
@@ -127,6 +161,7 @@ export async function startSession(
   if (!cwd) throw new Error('cwd is required for a new session')
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`cwd does not exist: ${cwd}`)
   if (existing && (await mux.alive(name))) throw new Error(`session "${name}" is already running`)
+  await ensureClaude()
 
   const role = opts.role ?? existing?.role ?? 'worker'
   sessions.create(name, role, cwd, opts.autostart ?? (existing ? Boolean(existing.autostart) : role === 'orchestrator'))
@@ -141,7 +176,7 @@ export async function startSession(
   await mux.spawn(name, cwd, launchArgv(s, { resume: opts.resume }), env)
   sessions.update(name, { launch_rev: launchRev(s) })
   spawnedAt.set(name, Date.now())
-  events.add(name, 'spawn', { resume: Boolean(opts.resume && s.claude_session_id) })
+  events.add(name, 'spawn', { resume: Boolean(opts.resume && canResume(s)) })
   sessionChanged(name)
   void passStartupDialogs(name)
   return sessions.get(name)!
@@ -204,7 +239,7 @@ async function passStartupDialogs(name: string) {
       return
     }
     if (!(await mux.alive(name))) {
-      setStatus(name, 'exited', tail(screen))
+      await noteExit(name)
       return
     }
     for (const d of DIALOGS) {
@@ -235,6 +270,8 @@ export async function stopSession(name: string) {
   if (!sessions.get(name)) throw new Error(`no session "${name}"`)
   // Mark it stopped first, so the reconcile loop never mistakes the kill for a crash.
   setStatus(name, 'stopped')
+  health.forget(name)
+  health.setDown(name, null)
   await mux.kill(name)
   sessions.update(name, { ended_at: new Date().toISOString(), channel_connected: 0 })
   permissions.expire(name)
@@ -244,11 +281,15 @@ export async function stopSession(name: string) {
 export async function restartSession(name: string) {
   const s = sessions.get(name)
   if (!s) throw new Error(`no session "${name}"`)
+  await ensureClaude() // before the kill, so a broken install doesn't take a running session down with it
   await mux.kill(name)
+  // Asked for (by the user, the orchestrator or a refresh): a fresh start, with the full budget for later crashes.
+  sessions.update(name, { restarts: 0 })
   return startSession(name, { resume: true })
 }
 
 export async function removeSession(name: string) {
+  health.forget(name)
   await mux.kill(name)
   sessions.remove(name)
   usage.remove(name)
@@ -292,8 +333,8 @@ export async function claudeAgent(s: Session): Promise<Agent | null> {
     ?? list.find(a => a.name === s.name && a.cwd === s.cwd) ?? null
 }
 
-/** Resolves with the status once the session reaches one of `until`, or rejects on timeout. */
-export function waitFor(name: string, until: string[], timeoutMs: number): Promise<string> {
+/** Resolves with the status once the session reaches one of `until`; rejects on timeout or when `signal` aborts. */
+export function waitFor(name: string, until: string[], timeoutMs: number, signal?: AbortSignal): Promise<string> {
   const now = sessions.get(name)
   if (!now) return Promise.reject(new Error(`no session "${name}"`))
   if (until.includes(now.status)) return Promise.resolve(now.status)
@@ -307,11 +348,17 @@ export function waitFor(name: string, until: string[], timeoutMs: number): Promi
       cleanup()
       reject(new Error(`timed out; "${name}" is still ${sessions.get(name)?.status}`))
     }, timeoutMs)
+    const onAbort = () => {
+      cleanup()
+      reject(new Error('stopped waiting'))
+    }
     const cleanup = () => {
       clearTimeout(timer)
       bus.off(`status:${name}`, onStatus)
+      signal?.removeEventListener('abort', onAbort)
     }
     bus.on(`status:${name}`, onStatus)
+    signal?.addEventListener('abort', onAbort)
   })
 }
 
@@ -344,33 +391,109 @@ export async function reconcile() {
       if (s.status === 'working' && Date.now() - Math.max(activity.get(s.name) ?? 0, Date.parse(s.updated_at)) > 90_000) {
         await import('./router.ts').then(r => r.settleIfIdle(s.name)).catch(() => {})
       }
+      health.checkRecovered(sessions.get(s.name) ?? s)
       continue
     }
     if (s.status === 'starting' && Date.now() - Date.parse(s.updated_at) < 10_000) continue
     if (s.status !== 'exited') {
-      let screen = ''
-      try {
-        screen = await mux.capture(s.name, 40)
-      } catch {
-        // the pane is gone entirely (for example after a reboot)
-      }
-      sessions.update(s.name, { channel_connected: 0 })
-      permissions.expire(s.name)
-      setStatus(s.name, 'exited', tail(screen) || null)
-      events.add(s.name, 'exited', { screen: tail(screen) })
-      continue // restart on a later pass, after the backoff below
+      await noteExit(s.name)
+      continue // restart on a later pass, after the backoff
     }
-    if (!config.autostart || s.restarts >= MAX_RESTARTS) continue
-    // Back off between attempts: 15s, 30s, 60s, …
-    if (Date.now() - Date.parse(s.updated_at) < config.restartBackoffMs * 2 ** s.restarts) continue
-    try {
-      sessions.update(s.name, { restarts: s.restarts + 1 })
-      await startSession(s.name, { resume: true })
-    } catch (e) {
-      events.add(s.name, 'restart-failed', { error: String(e) })
-    }
+    await bringBack(s)
   }
   ;(await import('./router.ts')).resumeInterrupted()
+}
+
+const backoff = (restarts: number) => config.restartBackoffMs * 2 ** restarts // 15s, 30s, 60s, …
+const later = (ms: number) => new Date(Date.now() + ms).toISOString()
+
+/** The process ended without being asked to: record why, and what Neural will do about it. */
+const noting = new Set<string>()
+async function noteExit(name: string) {
+  if (noting.has(name)) return // the startup watcher and the reconcile pass can both notice the same exit
+  noting.add(name)
+  try {
+    await recordExit(name)
+  } finally {
+    noting.delete(name)
+  }
+}
+
+async function recordExit(name: string) {
+  const s = sessions.get(name)
+  if (!s || s.status === 'exited' || s.status === 'stopped') return // already noted, or stopped on purpose
+  const exit = await mux.exitStatus(name)
+  let screen = ''
+  try {
+    screen = await mux.capture(name, 40)
+  } catch {
+    // the pane is gone entirely (for example after a reboot)
+  }
+  const now = new Date().toISOString()
+  let down: health.Down
+  // Not found, not executable, not installed: check the program itself, and if that's it, say so instead of
+  // restarting a session that can't start.
+  const check = health.looksLikeInstall(screen, exit?.code ?? null) ? await checkClaude({ fresh: true }) : null
+  if (check && !check.ok) down = { kind: 'install', reason: `Claude Code's install is broken: ${check.reason}`, hint: check.hint, retry_at: null, since: now }
+  else {
+    const reason = health.exitReason(exit, screen)
+    if (!config.autostart) down = { kind: 'crash', reason, retry_at: null, since: now }
+    else if (s.restarts >= MAX_RESTARTS) down = { kind: 'gave-up', reason: `crashed ${s.restarts + 1} times in a row; last time ${reason}`, retry_at: null, since: now }
+    else down = { kind: 'crash', reason, retry_at: later(backoff(s.restarts)), attempt: s.restarts + 1, max: MAX_RESTARTS, since: now }
+  }
+  // Written before the status, so the notification the status change sends can see it.
+  sessions.update(name, { channel_connected: 0, down: JSON.stringify(down) })
+  permissions.expire(name)
+  setStatus(name, 'exited', health.tail(screen) || null)
+  events.add(name, 'exited', { screen: health.tail(screen), exit, kind: down.kind })
+  health.exited(sessions.get(name)!, down, screen, exit)
+}
+
+/** An exited session: restart it when it is due, unless it can't start or has crashed too often. */
+async function bringBack(s: Session) {
+  if (!config.autostart) return
+  const down = health.downOf(s)
+  if (down?.kind === 'gave-up') return
+  if (down?.kind === 'install') {
+    // Waiting for the install to be fixed; checked again every so often, without spending an attempt.
+    const check = await checkClaude()
+    if (!check.ok) return
+    health.installFixed()
+    events.add(s.name, 'install-fixed', { version: check.version })
+    return tryStart(s, false)
+  }
+  if (s.restarts >= MAX_RESTARTS) {
+    const d: health.Down = { kind: 'gave-up', reason: down?.reason ?? `crashed ${s.restarts} times in a row`, retry_at: null, since: new Date().toISOString() }
+    health.setDown(s.name, d)
+    sessionChanged(s.name)
+    return health.gaveUp(s, d)
+  }
+  const due = down?.retry_at ? Date.parse(down.retry_at) : Date.parse(s.updated_at) + backoff(s.restarts)
+  if (Date.now() < due) return
+  const check = await checkClaude()
+  if (!check.ok) {
+    const d: health.Down = { kind: 'install', reason: `Claude Code's install is broken: ${check.reason}`, hint: check.hint, retry_at: null, since: new Date().toISOString() }
+    health.setDown(s.name, d)
+    sessionChanged(s.name)
+    events.add(s.name, 'health', { kind: d.kind, reason: d.reason })
+    return health.installBroken(s, d)
+  }
+  return tryStart(s, true)
+}
+
+async function tryStart(s: Session, counts: boolean) {
+  try {
+    if (counts) sessions.update(s.name, { restarts: s.restarts + 1 })
+    await startSession(s.name, { resume: true })
+  } catch (e) {
+    events.add(s.name, 'restart-failed', { error: String(e) })
+    const restarts = sessions.get(s.name)?.restarts ?? s.restarts
+    health.setDown(s.name, {
+      kind: 'crash', reason: `it couldn't be started: ${(e as Error).message}`, since: new Date().toISOString(),
+      retry_at: restarts < MAX_RESTARTS ? later(backoff(restarts)) : null, attempt: restarts + 1, max: MAX_RESTARTS,
+    })
+    sessionChanged(s.name)
+  }
 }
 
 const refreshedAt = new Map<string, number>()
@@ -394,7 +517,12 @@ async function refreshIfOutdated(s: Session): Promise<boolean> {
   if (await mux.attached(s.name)) return false
   refreshedAt.set(s.name, Date.now())
   events.add(s.name, 'refresh', { from: s.launch_rev, to: rev })
-  await restartSession(s.name)
+  try {
+    await restartSession(s.name)
+  } catch (e) {
+    events.add(s.name, 'refresh-failed', { error: String(e) }) // Claude Code can't run: leave this one running
+    return false
+  }
   return true
 }
 
@@ -411,8 +539,6 @@ export function markHealthy(name: string) {
   sessions.update(name, { restarts: 0 })
 }
 
-function tail(screen: string, lines = 12) {
-  return screen.split('\n').filter(l => l.trim()).slice(-lines).join('\n')
-}
+const tail = health.tail
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))

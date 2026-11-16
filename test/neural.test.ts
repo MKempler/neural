@@ -16,6 +16,13 @@ const port = 17000 + Math.floor(Math.random() * 2000)
 const base = `http://127.0.0.1:${port}`
 const SOCKET = 'neural-test'
 // Reuse the embedding model if this machine already downloaded it (current or pre-rename data folder).
+// The claude program the hub runs: a wrapper around the stand-in, so a test can break the install and fix it.
+const claudeBin = path.join(tmp, 'bin/claude')
+const workingClaude = () => {
+  fs.mkdirSync(path.dirname(claudeBin), { recursive: true })
+  fs.writeFileSync(claudeBin, `#!/bin/sh\nexec '${path.join(here, 'fake-claude')}' "$@"\n`, { mode: 0o755 })
+}
+workingClaude()
 const models = ['neural', 'claude-hub'].map(d => path.join(os.homedir(), '.local/share', d, 'models'))
   .find(d => fs.existsSync(path.join(d, 'Xenova')))
 
@@ -23,7 +30,7 @@ Object.assign(process.env, {
   NEURAL_DATA_DIR: tmp,
   NEURAL_PORT: String(port),
   NEURAL_TMUX_SOCKET: SOCKET,
-  NEURAL_CLAUDE_BIN: path.join(here, 'fake-claude'),
+  NEURAL_CLAUDE_BIN: claudeBin,
   NEURAL_TEST_NODE: process.execPath,
   NEURAL_ORCHESTRATOR_CWD: tmp,
   NEURAL_TRANSCRIPTS_DIR: path.join(tmp, 'transcripts'),
@@ -45,6 +52,7 @@ Object.assign(process.env, {
   NEURAL_PROJECTS_ROOT: path.join(tmp, 'projects'),
   NEURAL_REFRESH_IDLE_MS: '500',
   NEURAL_RESTART_BACKOFF_MS: '300',
+  NEURAL_RECOVERED_MS: '500',
 })
 
 const killTmux = () => {
@@ -966,6 +974,107 @@ test('a session started with an older setup is restarted once idle, and resumes 
   }, 20_000)
   assert.equal(after.claude_session_id, before.claude_session_id) // resumed, not a new conversation
   assert.equal(after.launch_rev, launchRev(rows.get('main')!))
+})
+
+test('why a session exited: the cause, and how to fix a broken install', async () => {
+  const health = await import('../server/src/health.ts')
+  assert.equal(health.looksLikeInstall('zsh:1: permission denied: /x/bin/claude\n\nPane is dead (status 126, Mon Nov 16)', 126), true)
+  assert.equal(health.looksLikeInstall('zsh:1: command not found: claude', null), true)
+  assert.equal(health.looksLikeInstall('Goodbye!', 0), false)
+  assert.match(health.exitReason({ code: 1, signal: null }, 'No conversation found with session ID: abc\nPane is dead (status 1)'), /status 1: "No conversation found/)
+  assert.match(health.exitReason({ code: null, signal: 9 }, ''), /SIGKILL/)
+  assert.match(health.exitReason(null, ''), /terminal is gone/)
+  // An npm update that failed partway: a stub where the program should be, and the old copy beside it.
+  const prefix = path.join(tmp, 'npm-prefix')
+  const scope = path.join(prefix, 'lib/node_modules/@anthropic-ai')
+  fs.mkdirSync(path.join(scope, 'claude-code/bin'), { recursive: true })
+  fs.mkdirSync(path.join(scope, '.claude-code-1L0AhRWa/bin'), { recursive: true })
+  fs.writeFileSync(path.join(scope, 'claude-code/bin/claude.exe'), 'claude native binary not installed\n')
+  fs.mkdirSync(path.join(prefix, 'bin'))
+  fs.symlinkSync('../lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe', path.join(prefix, 'bin/claude'))
+  const check = await health.checkClaude(path.join(prefix, 'bin/claude'))
+  assert.equal(check.ok, false)
+  if (check.ok) return
+  assert.match(check.reason, /not executable/)
+  assert.match(check.hint, /\.claude-code-1L0AhRWa/)
+  assert.match(check.hint, /npm install -g @anthropic-ai\/claude-code/)
+  assert.equal((await health.checkClaude(claudeBin)).ok, true)
+})
+
+const fromNeural = async (about: string) => (await get('/api/messages?limit=500'))
+  .filter((m: any) => m.from_name === 'neural' && m.to_name === 'main' && m.body.includes(`${about}`))
+
+test('a broken Claude Code install is named as the cause, costs no restarts, and the session returns once fixed', async () => {
+  await api('POST', '/api/sessions', { name: 'hw', cwd: tmp, prompt: 'hello hw' })
+  await messageWhere('hw answers', m => m.from_name === 'hw' && m.body === 'echo: hello hw')
+  await idle('hw')
+  // The install breaks under it (an update left a stub that can't run), then the session crashes.
+  fs.writeFileSync(claudeBin, '#!/bin/sh\necho "claude native binary not installed" >&2\nexit 126\n', { mode: 0o755 })
+  await api('POST', '/api/sessions/hw/keys', { keys: ['C-c'] })
+  const crashed = await messageWhere('main told of the crash', m => m.from_name === 'neural' && /\*\*hw stopped unexpectedly\*\*/.test(m.body))
+  assert.equal(crashed.to_name, 'main')
+  assert.match(crashed.body, /status 130/)
+  const broken = await messageWhere('main told the cause', m => m.from_name === 'neural' && /install is broken\*\*, so hw/.test(m.body))
+  assert.match(broken.body, /status 126: "claude native binary not installed"/)
+  const s = await session('hw')
+  assert.equal(s.status, 'exited')
+  const down = JSON.parse(s.down)
+  assert.equal(down.kind, 'install')
+  assert.equal(down.retry_at, null)
+  await new Promise(r => setTimeout(r, 1500)) // a few reconcile passes
+  assert.equal((await session('hw')).restarts, 0)
+  assert.equal((await fromNeural('hw')).length, 2) // nothing repeated
+  // Starting it by hand says why it can't.
+  const res = await api('POST', '/api/sessions/hw/restart')
+  assert.notEqual(res.status, 200)
+  assert.match(res.body.error, /install is broken/)
+  // Fixed: it comes back by itself, and main hears so once.
+  workingClaude()
+  await idle('hw')
+  await messageWhere('main told it is healthy', m => m.from_name === 'neural' && /\*\*hw is healthy again\*\*/.test(m.body))
+  assert.equal((await session('hw')).down, null)
+  assert.equal((await fromNeural('hw')).length, 3)
+})
+
+test('a new session that dies before its first prompt starts afresh, and still gets the prompt', async () => {
+  const { events } = await import('../server/src/db.ts')
+  fs.writeFileSync(path.join(tmp, 'crash-once-crashy1'), '')
+  await api('POST', '/api/sessions', { name: 'crashy1', cwd: tmp, prompt: 'first words' })
+  await messageWhere('the first prompt answered', m => m.from_name === 'crashy1' && m.body === 'echo: first words', 20_000)
+  const spawns = events.recent('crashy1', 50).filter((e: any) => e.event === 'spawn').map((e: any) => JSON.parse(e.payload))
+  assert.equal(spawns.length, 2)
+  // There was no saved conversation to resume (resuming one would fail and crash again).
+  assert.deepEqual(spawns.map((p: any) => p.resume), [false, false])
+  await messageWhere('main told of the crash', m => m.from_name === 'neural' && /\*\*crashy1 stopped unexpectedly\*\*/.test(m.body))
+  await messageWhere('main told it recovered', m => m.from_name === 'neural' && /\*\*crashy1 is healthy again\*\* after 1 restart/.test(m.body))
+  assert.equal((await fromNeural('crashy1')).length, 2)
+})
+
+test('a wait ends as soon as a message arrives, and notify: true does not block at all', async () => {
+  await idle('main')
+  await idle('hw')
+  await say('hw', 'slow and steady')
+  await until('hw working', async () => (await session('hw')).status === 'working')
+  await say('main', `tool wait_for ${JSON.stringify({ name: 'hw', until: 'idle', timeout_s: 60 })}`)
+  await until('main waiting', async () => /^Waiting for hw/.test((await session('main')).activity?.text ?? ''))
+  await new Promise(r => setTimeout(r, 300))
+  const t0 = Date.now()
+  await say('main', 'are you there')
+  const r = await messageWhere('the wait returned', m => m.from_name === 'main' && /"interrupted"/.test(m.body))
+  assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0}ms`)
+  assert.match(r.body, /"from": "user"/)
+  assert.match(r.body, /"status": "working"/)
+  await messageWhere('the message answered', m => m.from_name === 'main' && m.body === 'echo: are you there')
+  await idle('main')
+
+  const t1 = Date.now()
+  await say('main', `tool wait_for ${JSON.stringify({ name: 'hw', until: 'idle', notify: true })}`)
+  const w = await messageWhere('the watch set', m => m.from_name === 'main' && /"watching": true/.test(m.body))
+  assert.ok(Date.now() - t1 < 1500)
+  assert.match(w.body, /"status": "working"/)
+  await api('POST', '/api/sessions/hw/interrupt')
+  await messageWhere('told when hw is done', m => m.from_name === 'neural' && m.to_name === 'main' && /\*\*hw finished its turn/.test(m.body))
+  await idle('main')
 })
 
 test('uploads over the size limit are refused', async () => {

@@ -77,6 +77,8 @@ export const config = {
   // How often to check that sessions are alive, and the first delay before restarting a dead one (doubles each try).
   reconcileMs: Number(env('RECONCILE_MS') ?? 15_000),
   restartBackoffMs: Number(env('RESTART_BACKOFF_MS') ?? 15_000),
+  // After a crash, how long a session must stay up before the orchestrator is told it is healthy again.
+  recoveredAfterMs: Number(env('RECOVERED_MS') ?? 60_000),
   retryMs: Number(env('RETRY_MS') ?? 10_000),
   // Files attached to messages, and the largest single file accepted.
   uploadsDir: env('UPLOADS_DIR') ?? path.join(dataDir, 'uploads'),

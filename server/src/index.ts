@@ -21,6 +21,7 @@ import * as git from './git.ts'
 import * as usage from './usage.ts'
 import * as projects from './projects.ts'
 import { scrubArchive } from './scrub.ts'
+import * as health from './health.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup } from './spawner.ts'
@@ -445,9 +446,36 @@ function onChannel(ws: WebSocket, name: string) {
 // ---------------------------------------------------------------------------------------------
 
 bus.on('trouble', (name: string, status: string, detail: string | null) => {
+  const down = health.downOf(sessions.get(name))
+  // A crash Neural is already restarting, with an orchestrator looking after it, isn't worth a buzz; the
+  // orchestrator is told, and the user hears if it can't be fixed (giving up, a broken install).
+  if (status === 'exited' && down?.kind === 'crash' && down.retry_at && health.watched(name)) return
   const what = status === 'exited' ? 'stopped unexpectedly' : 'needs attention'
-  void push.notify({ title: `${name} ${what}`, body: detail ?? 'Open the hub to see its terminal.', session: name, tag: `trouble-${name}` })
+  const body = status === 'exited' && down ? down.reason : detail
+  void push.notify({ title: `${name} ${what}`, body: body ?? 'Open the hub to see its terminal.', session: name, tag: `trouble-${name}` })
 })
+
+// The orchestrator's guide, copied into its folder. It is kept up to date while it is one of Neural's own
+// versions; once the user edits it, it is theirs and left alone. (A changed guide reaches the orchestrator when
+// it is next refreshed: the guide is part of its launch fingerprint.)
+const OLD_GUIDES = new Set(['b184db3c19240933', 'c2d675bf765ef871', 'e662951e3f56f900'])
+const shortHash = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex').slice(0, 16)
+
+function installGuide() {
+  const guide = path.join(config.orchestratorCwd, 'CLAUDE.md')
+  const fresh = fs.readFileSync(path.join(ROOT, 'orchestrator/CLAUDE.md'))
+  let current: Buffer | null = null
+  try {
+    current = fs.readFileSync(guide)
+  } catch {
+    // not there yet
+  }
+  if (current?.equals(fresh)) return
+  if (current && !OLD_GUIDES.has(shortHash(current)) && shortHash(current) !== prefs.get<string>('guideHash')) return
+  fs.mkdirSync(config.orchestratorCwd, { recursive: true })
+  fs.writeFileSync(guide, fresh)
+  prefs.set('guideHash', shortHash(fresh))
+}
 
 export async function start() {
   // After a hub restart no channel is connected yet; the channel servers reconnect on their own.
@@ -459,10 +487,8 @@ export async function start() {
   })
   console.log(`neural listening on http://${config.host}:${config.port}`)
 
+  installGuide()
   if (config.autostart && !sessions.get('main')) {
-    fs.mkdirSync(config.orchestratorCwd, { recursive: true })
-    const guide = path.join(config.orchestratorCwd, 'CLAUDE.md')
-    if (!fs.existsSync(guide)) fs.copyFileSync(path.join(ROOT, 'orchestrator/CLAUDE.md'), guide)
     await startSession('main', { cwd: config.orchestratorCwd, role: 'orchestrator', autostart: true })
       .catch(e => console.error('could not start the orchestrator:', e.message))
   }

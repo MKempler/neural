@@ -117,13 +117,19 @@ flowchart LR
 | Permission prompts | Allow / Deny in the app | Answer in the terminal view. |
 
 A session that crashes, or that was running before a reboot, is resumed with `claude --resume` and keeps its
-conversation. A session you stop stays stopped.
+conversation (one that died before its first prompt starts afresh and still gets that prompt). Restarts back
+off and stop after five failures in a row. Before every start Neural checks that Claude Code itself runs
+(`claude --version`); if the install is broken, it says what is wrong and how to fix it, spends no restart
+attempts, and starts the waiting sessions again once Claude Code works. The app shows why a session is down and
+whether Neural is retrying, and `main` gets a short message when a session goes down, keeps crashing or is
+healthy again, so it can deal with it and tell you only when it can't. A session you stop stays stopped.
 
 ### Tools a session gets
 
 - **Every session:** `reply`, `send_message`, `list_sessions`, `search_history`, `get_thread`.
 - **The orchestrator also gets:** `spawn_session`, `stop_session`, `restart_session`, `read_screen`,
-  `wait_for`.
+  `wait_for`. A blocking `wait_for` returns early when a message arrives, and `wait_for(notify: true)`
+  doesn't block at all: Neural sends a message when the session gets there.
 
 ## Get started
 
@@ -277,6 +283,7 @@ Ideas that would make good contributions:
 server/src/index.ts       HTTP, WebSockets, hook endpoint, static files
 server/src/router.ts      store-then-deliver, acknowledgements, fallbacks, session tools
 server/src/spawner.ts     launching sessions, startup prompts, crash recovery
+server/src/health.ts      why a session is down, checking Claude Code runs, telling the orchestrator
 server/src/ingest.ts      transcript archive
 server/src/git.ts         a session's changes: branch, commits, diffs and turn recaps (read-only)
 server/src/usage.ts       usage limits and context, from each session's status line

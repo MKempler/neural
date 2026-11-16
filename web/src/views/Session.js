@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { html, api, clock, dayLabel, tilde, shortPath, local, unmark, modelChip, isCommand, opensPicker } from '../lib.js'
 import { Icon } from '../icons.js'
-import { Dot, Menu, PermissionCard, StatusPill } from '../components/parts.js'
+import { Dot, DownInfo, Menu, PermissionCard, StatusPill, downOf } from '../components/parts.js'
 import { Composer, DropZone } from '../components/Composer.js'
 import { Message, ActivityLine } from '../components/Message.js'
 import { Terminal } from '../components/Terminal.js'
@@ -48,7 +48,8 @@ export function Session() {
   const down = ['stopped', 'exited'].includes(s.status)
   const perms = permissions.value.filter(p => p.session === name)
   const asking = live(questions.value, name).length > 0
-  const showNotice = s.status_detail && (['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && perms.length === 0 && !asking))
+  const showDown = Boolean(downOf(s)) && ['exited', 'starting'].includes(s.status)
+  const showNotice = !showDown && s.status_detail && (['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'blocked' && perms.length === 0 && !asking))
 
   const menu = [
     phone && tab !== 'changes' && { label: 'Changes', icon: 'branch', run: () => setTab('changes') },
@@ -105,6 +106,7 @@ export function Session() {
           </div>
         </header>`}
 
+    ${showDown && html`<div class=${`notice ${s.status === 'exited' ? 'bad' : ''}`}><div class="down-body"><${DownInfo} s=${s} />${s.status === 'exited' && s.status_detail && html`<pre>${s.status_detail}</pre>`}</div></div>`}
     ${showNotice && html`<div class=${`notice ${s.status === 'exited' ? 'bad' : ''}`}><pre>${s.status_detail}</pre></div>`}
     ${perms.length > 0 && html`<div class="inline-perms">${perms.map(p => html`<${PermissionCard} p=${p} showSession=${false} key=${p.id} />`)}</div>`}
 
@@ -256,6 +258,10 @@ const EVENT_TEXT = {
   'fallback-paste': 'Message typed into the terminal',
   'fallback-failed': 'Fallback delivery failed',
   'restart-failed': 'Restart failed',
+  health: 'Went down',
+  recovered: 'Healthy again',
+  'install-fixed': 'Claude Code runs again',
+  'refresh-failed': 'Refresh skipped',
   'turn-recap': 'Changes in the turn',
   'usage-limit': 'Usage limit reached',
   'limit-reset': 'Usage limit reset',

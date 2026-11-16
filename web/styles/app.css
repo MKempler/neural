@@ -197,6 +197,13 @@ kbd {
   font: var(--fs-xs)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto;
 }
 .alert .actions { display: flex; gap: 6px; }
+.alert .down-info { grid-column: 2 / -1; }
+.down-info { display: grid; gap: 2px; font-size: var(--fs-sm); }
+.down-info p { margin: 0; overflow-wrap: anywhere; }
+.down-info .down-reason { font-weight: 500; }
+.down-info .down-hint, .down-info .down-next { color: var(--text-2); }
+.down-info code { font: 0.92em var(--mono); }
+.down-body { display: grid; gap: 8px; min-width: 0; flex: 1; }
 .alert.clickable { cursor: pointer; transition: background var(--t) var(--ease); }
 .alert.clickable:hover { background: var(--surface-2); }
 

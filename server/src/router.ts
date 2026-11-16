@@ -3,11 +3,12 @@ import { sessions, messages, outbox, events, permissions, questions, type Messag
 import { Driver, type PlanAnswer, type QuestionAnswer } from './dialogs.ts'
 import { redact } from './redact.ts'
 import { searchAll } from './embed.ts'
-import { broadcast, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
+import { broadcast, bus, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
 import { notify } from './push.ts'
 import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, summary } from './files.ts'
-import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName, claudeAgent } from './spawner.ts'
+import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName, claudeAgent, ensureClaude } from './spawner.ts'
 import * as projects from './projects.ts'
+import * as health from './health.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -38,6 +39,7 @@ export function sendMessage(m: { from: string; to: string; body: string; source:
   if (m.to !== 'user') {
     outbox.add(stored.id, m.to)
     flush(m.to)
+    bus.emit(`message:${m.to}`, m.from)
   }
   const fresh = messages.get(stored.id)!
   broadcast({ type: 'message', message: fresh })
@@ -60,7 +62,7 @@ export function flush(target: string) {
       delivery(row.message_id)
       continue
     }
-    const from = msg.from_name === 'user' || msg.from_name === 'system' ? msg.from_name : `session:${msg.from_name}`
+    const from = ['user', 'system', 'neural'].includes(msg.from_name) ? msg.from_name : `session:${msg.from_name}`
     const ok = sendToChannel(target, { type: 'push', msg_id: String(msg.id), from, ts: msg.ts, body: forClaude(msg.id, bodyFor(msg)) })
     if (!ok) return
     outbox.markPushed(msg.id, 'channel')
@@ -398,7 +400,9 @@ export function describeTool(tool: string, input: any): string {
     reply: 'Replying', send_message: `Messaging ${input?.to ?? 'a session'}`, list_sessions: 'Checking sessions',
     search_history: 'Searching history', get_thread: 'Reading a conversation', spawn_session: `Starting ${input?.name ?? 'a session'}`,
     stop_session: `Stopping ${input?.name ?? 'a session'}`, restart_session: `Restarting ${input?.name ?? 'a session'}`,
-    read_screen: `Looking at ${input?.name ?? 'a terminal'}`, wait_for: `Waiting for ${input?.name ?? 'a session'}`,
+    read_screen: `Looking at ${input?.name ?? 'a terminal'}`,
+    // Messages still get through: a wait ends early when one arrives.
+    wait_for: input?.notify ? `Watching ${input?.name ?? 'a session'}` : `Waiting for ${input?.name ?? 'a session'} (messages still get through)`,
   }
   const mcp = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(tool)
   if (mcp && (mcp[1] === 'neural' || mcp[1] === 'hub')) return neural[mcp[2]] ?? 'Using Neural'
@@ -462,6 +466,7 @@ function onTurnEnd(name: string, payload: any) {
 export function channelConnected(name: string) {
   sessions.update(name, { channel_connected: 1 })
   events.add(name, 'channel-connected', null)
+  health.connected(name)
   const s = sessions.get(name)!
   if (s.status === 'starting' || s.status === 'attention' || s.status === 'exited') becomeReady(name)
   else {
@@ -473,6 +478,7 @@ export function channelConnected(name: string) {
 }
 
 function becomeReady(name: string) {
+  sessions.update(name, { down: null })
   setStatus(name, 'idle')
   sessionChanged(name)
   // Give Claude Code a moment to finish registering the channel listener before the first push.
@@ -510,7 +516,7 @@ export async function retryStale() {
     }
     try {
       if (!(await mux.alive(row.target))) continue // reconcile restarts it, and the message is requeued then
-      const from = msg.from_name === 'user' ? 'user' : `session:${msg.from_name}`
+      const from = ['user', 'system', 'neural'].includes(msg.from_name) ? msg.from_name : `session:${msg.from_name}`
       // Record the attempt before typing, so the turn it starts is counted from here.
       outbox.markPushed(row.message_id, 'paste')
       turns.set(row.target, { startedAt: Date.now(), replied: false, forUser: msg.from_name === 'user' })
@@ -640,6 +646,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
     case 'spawn_session': {
       if (!validName(String(a.name))) throw new Error('name must be lowercase letters, digits, - or _ (up to 32 characters)')
       if (sessions.get(a.name) && (await mux.alive(a.name))) throw new Error(`"${a.name}" is already running`)
+      await ensureClaude() // before a project folder is made for a session that couldn't start
       // A new project or a clone gets its folder in the projects folder first.
       let cwd = a.cwd
       if (a.clone) cwd = (await projects.clone(String(a.clone))).path
@@ -660,13 +667,55 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
     case 'read_screen':
       return { screen: await mux.capture(String(a.name), Math.min(a.lines ?? 0, 2000)) }
     case 'wait_for': {
-      const until = a.until === 'done' ? ['idle'] : a.until === 'exited' ? ['exited', 'stopped'] : [String(a.until ?? 'idle')]
-      const status = await waitFor(String(a.name), until, Math.min(a.timeout_s ?? 300, 3600) * 1000)
-      return { name: a.name, status }
+      const name = String(a.name)
+      if (!sessions.get(name)) throw new Error(`no session "${name}"`)
+      const want = a.until === 'done' ? 'idle' : String(a.until ?? 'idle')
+      const until = want === 'exited' ? ['exited', 'stopped'] : [want]
+      if (a.notify === true) return watch(caller, name, want, until, Math.min(Number(a.timeout_s) || 6 * 3600, 24 * 3600))
+      return waitOrMessage(caller, name, until, Math.min(Number(a.timeout_s) || 300, 3600) * 1000)
     }
     default:
       throw new Error(`unknown tool ${tool}`)
   }
+}
+
+/** Wait for `name` to reach a state, but return early when a message arrives for the caller: Claude Code only
+ *  shows it a new message once a tool returns, so a long wait would leave the user unanswered. */
+function waitOrMessage(caller: string, name: string, until: string[], ms: number) {
+  const ac = new AbortController()
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const onMessage = (from: string) => {
+      ac.abort()
+      resolve({ name, status: sessions.get(name)?.status, interrupted: 'new message', from, note: `Answer it, then wait again if you still need to.` })
+    }
+    bus.once(`message:${caller}`, onMessage)
+    waitFor(name, until, ms, ac.signal).then(
+      status => resolve({ name, status }),
+      e => { if (!ac.signal.aborted) reject(e) },
+    ).finally(() => bus.off(`message:${caller}`, onMessage))
+  })
+}
+
+/** Non-blocking wait: Neural messages the caller when `name` reaches the state (or the watch runs out). */
+const watches = new Map<string, AbortController>()
+function watch(caller: string, name: string, want: string, until: string[], seconds: number) {
+  const now = sessions.get(name)!.status
+  if (until.includes(now)) return { name, status: now }
+  const key = `${caller}>${name}`
+  watches.get(key)?.abort() // a new watch on the same session replaces the old one
+  const ac = new AbortController()
+  watches.set(key, ac)
+  const said: Record<string, string> = { idle: 'finished its turn and is idle', blocked: 'is waiting on a permission prompt', exited: 'has exited' }
+  waitFor(name, until, seconds * 1000, ac.signal).then(
+    status => sendMessage({ from: 'neural', to: caller, source: 'watch', body: `**${name} ${said[want] ?? `is ${status}`}** (you asked with wait_for to be told).` }),
+    () => {
+      if (ac.signal.aborted || !sessions.get(caller) || !sessions.get(name)) return
+      sendMessage({ from: 'neural', to: caller, source: 'watch', body: `**${name} is still ${sessions.get(name)!.status}** after ${Math.round(seconds / 60)} min; Neural stopped watching it.` })
+    },
+  ).catch(() => {}).finally(() => {
+    if (watches.get(key) === ac) watches.delete(key)
+  })
+  return { name, status: now, watching: true, note: `Neural sends you a message when ${name} is ${want}. You don't need to wait: end your turn, or carry on with something else.` }
 }
 
 /** Copy files a session attached into storage. */

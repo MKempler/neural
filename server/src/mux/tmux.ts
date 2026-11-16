@@ -47,6 +47,16 @@ export class Tmux implements Mux {
     }
   }
 
+  async exitStatus(name: string) {
+    try {
+      const [dead, status, signal] = (await this.run(['list-panes', '-t', this.target(name), '-F', '#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}'])).trim().split('\n')[0].split('\t')
+      if (dead !== '1') return null
+      return { code: status === '' ? null : Number(status), signal: signal && signal !== '0' ? Number(signal) : null }
+    } catch {
+      return null
+    }
+  }
+
   async attached(name: string) {
     try {
       return Number((await this.run(['display-message', '-p', '-t', this.target(name), '#{session_attached}'])).trim()) > 0

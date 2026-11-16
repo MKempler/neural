@@ -5,6 +5,9 @@ export interface Mux {
   spawn(name: string, cwd: string, argv: string[], env: Record<string, string>): Promise<void>
   /** True while the process started by spawn is still running. */
   alive(name: string): Promise<boolean>
+  /** How the process ended (exit code, or the signal that killed it), once it has; null while it runs or when the
+   *  terminal itself is gone. */
+  exitStatus(name: string): Promise<{ code: number | null; signal: number | null } | null>
   /** The visible screen plus up to `history` lines of scrollback, as plain text. */
   capture(name: string, history?: number): Promise<string>
   /** True while someone has the terminal open (a browser's live terminal, or tmux attach on the Mac). */

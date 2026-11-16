@@ -12,6 +12,44 @@ export function StatusPill({ status }) {
   return html`<span class=${`pill ${status}`}><${Dot} status=${status} />${STATUS[status] ?? status}</span>`
 }
 
+/** Why a session is down and what Neural is doing about it (the hub keeps it as JSON on the session). */
+export function downOf(s) {
+  try {
+    return s?.down ? JSON.parse(s.down) : null
+  } catch {
+    return null
+  }
+}
+
+const cap = t => (t ? t[0].toUpperCase() + t.slice(1) : '')
+/** Text with `code` spans. */
+const withCode = t => String(t).split(/`([^`]+)`/).map((part, i) => (i % 2 ? html`<code>${part}</code>` : part))
+
+export function DownInfo({ s }) {
+  const d = downOf(s)
+  const [, tick] = useState(0)
+  const due = d?.retry_at ? Date.parse(d.retry_at) : null
+  // Count down to the next attempt.
+  useEffect(() => {
+    if (!due || s.status !== 'exited') return
+    const t = setInterval(() => tick(n => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [due, s.status])
+  if (!d) return null
+  const attempt = d.attempt ? ` (attempt ${d.attempt} of ${d.max})` : ''
+  const wait = due ? Math.ceil((due - Date.now()) / 1000) : 0
+  const next = s.status === 'starting' ? `Restarting now${attempt}.`
+    : d.kind === 'install' ? 'Neural is not retrying: it restarts the session by itself once Claude Code runs again.'
+      : d.kind === 'gave-up' ? 'Neural stopped retrying. Start it again once the cause is fixed.'
+        : due ? `${wait > 1 ? `Restarting in ${wait}s` : 'Restarting'}${attempt}.`
+          : 'Neural is not restarting it by itself (autostart is off).'
+  return html`<div class="down-info">
+    <p class="down-reason">${withCode(cap(d.reason))}</p>
+    ${d.hint && html`<p class="down-hint">${withCode(d.hint)}</p>`}
+    <p class="down-next">${next}</p>
+  </div>`
+}
+
 /** Link that navigates inside the app without a page load. */
 export function Link({ href, class: cls, children, ...rest }) {
   const go = e => {

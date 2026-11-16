@@ -1,6 +1,8 @@
 // A scripted stand-in for Claude Code. It starts the MCP server named in --mcp-config the way Claude Code
 // would, receives channel events, and reacts to a few keywords so tests can drive each delivery path.
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -13,21 +15,36 @@ if (process.argv[2] === 'agents') {
   process.exit(0)
 }
 
+if (process.argv[2] === '--version') {
+  console.log('2.1.999 (Fake Claude)')
+  process.exit(0)
+}
+
 const argv = process.argv.slice(2)
 const arg = (flag: string) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined)
 const name = arg('--name')
 const sessionId = arg('--resume') ?? crypto.randomUUID()
+// Like Claude Code, the conversation is saved from its first prompt on, and only a saved one can be resumed.
+const transcript = path.join(os.tmpdir(), 'neural-fake-transcripts', `${sessionId}.jsonl`)
+if (arg('--resume') && !fs.existsSync(transcript)) {
+  console.log(`No conversation found with session ID: ${sessionId}`)
+  process.exit(1)
+}
 const settings = JSON.parse(fs.readFileSync(arg('--settings')!, 'utf8'))
 const mcpConfig = JSON.parse(fs.readFileSync(arg('--mcp-config')!, 'utf8')).mcpServers.neural
 
 const hook = async (event: string, extra: Record<string, unknown> = {}) => {
   const url = settings.hooks?.[event]?.[0]?.hooks?.[0]?.url
+  if (event === 'UserPromptSubmit' && !fs.existsSync(transcript)) {
+    fs.mkdirSync(path.dirname(transcript), { recursive: true })
+    fs.writeFileSync(transcript, '')
+  }
   if (!url) return
   await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     // Like Claude Code, turn-end hooks carry the effort level.
-    body: JSON.stringify({ session_id: sessionId, transcript_path: `/tmp/fake/${sessionId}.jsonl`, hook_event_name: event,
+    body: JSON.stringify({ session_id: sessionId, transcript_path: transcript, hook_event_name: event,
       ...(event === 'Stop' ? { effort: { level: 'high' } } : {}), ...extra }),
   }).catch(() => {})
 }
@@ -97,6 +114,7 @@ client.fallbackNotificationHandler = async (n: any) => {
   }
   await hook('UserPromptSubmit', { prompt: `<channel source="neural" from="${from}" msg_id="${msg_id}">\n${body}\n</channel>` })
   if (body.startsWith('echo:')) return hook('Stop', { last_assistant_message: 'Noted.' }) // don't ping-pong between sessions
+  if (from === 'neural') return hook('Stop', { last_assistant_message: 'Noted.' }) // Neural's own notices
   if (body.startsWith('noreply')) return hook('Stop', { last_assistant_message: `terminal answer to ${msg_id}` })
   if (body.startsWith('usage ')) {
     // Run the status line the way Claude Code does, with a reading as JSON on stdin, and report what it printed.
@@ -238,6 +256,13 @@ async function planDialog(plan: string) {
 
 await client.connect(new StdioClientTransport({ command: mcpConfig.command, args: mcpConfig.args, env: { ...process.env, ...mcpConfig.env } }))
 await hook('SessionStart', { source: arg('--resume') ? 'resume' : 'startup' })
+// A test can have a session die once, right after it starts and before its first prompt arrives.
+const crashOnce = name && process.env.NEURAL_DATA_DIR ? path.join(process.env.NEURAL_DATA_DIR, `crash-once-${name}`) : ''
+if (crashOnce && fs.existsSync(crashOnce)) {
+  fs.rmSync(crashOnce)
+  console.log('fake claude crashed on startup')
+  process.exit(1)
+}
 
 // Text typed or pasted into the terminal is a prompt, submitted with Enter. Like Claude Code, this asks the
 // terminal for bracketed paste, so newlines inside a paste do not submit it.

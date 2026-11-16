@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { html, ago, clock, plain, excerpt, shortPath, fmtNumber, modelChip } from '../lib.js'
 import { Icon } from '../icons.js'
-import { Composer, Dot, PermissionCard, StatusPill, Link } from '../components/parts.js'
+import { Composer, Dot, DownInfo, PermissionCard, StatusPill, Link, downOf } from '../components/parts.js'
 import { NotifySetup } from '../push.js'
 import { UsageMeter, ContextChip } from '../components/Usage.js'
 import { CardReplies } from '../components/QuickReplies.js'
@@ -17,7 +17,7 @@ export function Home() {
   const name = user.value.name
   const perms = permissions.value
   const asks = live(questions.value)
-  const troubled = list.filter(s => ['attention', 'exited', 'limited'].includes(s.status)
+  const troubled = list.filter(s => ['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'starting' && downOf(s))
     || (s.status === 'blocked' && !perms.some(p => p.session === s.name) && !asks.some(q => q.session === s.name)))
   const unread = list.filter(s => s.unread > 0 && (s.last_reply ?? s.last_message))
   const needs = perms.length + asks.length + troubled.length + unread.length
@@ -89,8 +89,10 @@ function Trouble({ s }) {
     await sessionAction(s.name, 'restart').catch(err => alert(err.message))
     setBusy(false)
   }
-  const label = s.status === 'exited' ? 'stopped unexpectedly' : s.status === 'blocked' ? 'is waiting in its terminal'
-    : s.status === 'limited' ? 'hit the usage limit' : 'needs attention'
+  const d = downOf(s)
+  const label = d ? ({ install: "can't start", 'gave-up': 'keeps crashing' }[d.kind] ?? (s.status === 'starting' ? 'is restarting' : 'crashed'))
+    : s.status === 'exited' ? 'stopped unexpectedly' : s.status === 'blocked' ? 'is waiting in its terminal'
+      : s.status === 'limited' ? 'hit the usage limit' : 'needs attention'
   return html`<div class=${`alert ${s.status === 'exited' ? 'bad' : ''}`}>
     <${Dot} status=${s.status} />
     <div class="truncate"><${Link} href=${sessionPath(s.name)} class="who">${s.name}</${Link}> <span class="what">${label}</span></div>
@@ -98,7 +100,8 @@ function Trouble({ s }) {
       <button class="btn sm" onClick=${() => navigate(sessionPath(s.name, 'terminal'))}><${Icon} name="terminal" />Terminal</button>
       ${s.status !== 'limited' && html`<button class="btn sm" disabled=${busy} onClick=${restart}><${Icon} name="restart" />${s.status === 'exited' ? 'Start' : 'Restart'}</button>`}
     </div>
-    ${s.status_detail && html`<pre class="detail">${s.status_detail}</pre>`}
+    ${d && html`<${DownInfo} s=${s} />`}
+    ${s.status_detail && s.status !== 'starting' && html`<pre class="detail">${s.status_detail}</pre>`}
   </div>`
 }
 

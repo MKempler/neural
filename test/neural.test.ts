@@ -54,6 +54,7 @@ Object.assign(process.env, {
   NEURAL_RESTART_BACKOFF_MS: '300',
   NEURAL_RECOVERED_MS: '500',
   NEURAL_JOBS_MS: '300',
+  NEURAL_HANDOFF_IDLE_MS: '300',
 })
 
 const killTmux = () => {
@@ -1271,6 +1272,43 @@ test('a session can get extra MCP servers, at the start or later, and the app se
   await until('restarted with docs', async () => /resumed .* servers=docs,neural$/m.test((await get('/api/screen/studio')).screen))
   await idle('studio')
   await (await import('../server/src/spawner.ts')).removeSession('studio')
+  await idle('main')
+})
+
+test('near a full context the orchestrator writes STATE.md and is restarted fresh, not resumed', async () => {
+  const usage = await import('../server/src/usage.ts')
+  const { events } = await import('../server/src/db.ts')
+  const before = await idle('main')
+  usage.record('main', { context_window: { used_percentage: 64, context_window_size: 200_000 } })
+  const asked = await messageWhere('the handoff request', m => m.from_name === 'neural' && m.to_name === 'main' && /Time for a fresh context/.test(m.body))
+  assert.ok(asked.body.includes(path.join(tmp, 'STATE.md')))
+  usage.record('main', { context_window: { used_percentage: 66, context_window_size: 200_000 } }) // asked once
+  // Nothing happens until the state is written down.
+  await new Promise(r => setTimeout(r, 1200))
+  assert.equal((await session('main')).claude_session_id, before.claude_session_id)
+  fs.writeFileSync(path.join(tmp, 'STATE.md'), '# State\n- hw: waiting on review\n')
+  await messageWhere('told after the restart', m => m.from_name === 'neural' && m.to_name === 'main' && /restarted with a fresh context \(not resumed\)/.test(m.body), 20_000)
+  const after = await until('a new conversation', async () => {
+    const s = await session('main')
+    return s.status === 'idle' && s.channel_connected && s.claude_session_id !== before.claude_session_id ? s : null
+  })
+  assert.equal(after.context, null) // the old reading is gone
+  assert.equal(JSON.parse(events.recent('main', 50).find((e: any) => e.event === 'spawn').payload).resume, false)
+  assert.equal((await get('/api/messages?limit=500')).filter((m: any) => m.from_name === 'neural' && /Time for a fresh context/.test(m.body)).length, 1)
+})
+
+test('a fresh context can be asked for by hand, for a worker too', async () => {
+  const before = await idle('hw')
+  await api('POST', '/api/sessions/hw/handoff')
+  const asked = await messageWhere('asked', m => m.from_name === 'neural' && m.to_name === 'hw' && /The user asked for a fresh context/.test(m.body))
+  const file = path.join(tmp, 'uploads/handoff/hw.md')
+  assert.ok(asked.body.includes(file))
+  fs.writeFileSync(file, 'hw state\n')
+  await until('hw restarted fresh', async () => {
+    const s = await session('hw')
+    return s.status === 'idle' && s.channel_connected && s.claude_session_id !== before.claude_session_id
+  }, 20_000)
+  await messageWhere('told', m => m.from_name === 'neural' && m.to_name === 'hw' && m.body.includes(`Read ${file} first`))
   await idle('main')
 })
 

@@ -29,7 +29,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean; handoffAt?: number } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -80,6 +80,11 @@ export const config = {
   // After a crash, how long a session must stay up before the orchestrator is told it is healthy again.
   // Near a usage limit (95%), hold messages from other sessions to low-priority sessions until it resets.
   quotaHold: (env('QUOTA_HOLD') ?? (file.quotaHold === false ? 'off' : 'on')) !== 'off',
+  // Context percent at which a session (the orchestrator, and workers that opt in) is asked to write down its
+  // state and is then restarted with a fresh context instead of being compacted. 0 turns it off.
+  handoffAt: Number(env('HANDOFF_AT') ?? file.handoffAt ?? 60),
+  // How long a session must have been quiet before that restart, so a conversation isn't cut off.
+  handoffIdleMs: Number(env('HANDOFF_IDLE_MS') ?? 30_000),
   recoveredAfterMs: Number(env('RECOVERED_MS') ?? 60_000),
   retryMs: Number(env('RETRY_MS') ?? 10_000),
   // How often to look for scheduled jobs that are due.

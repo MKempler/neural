@@ -11,6 +11,7 @@ import * as projects from './projects.ts'
 import * as health from './health.ts'
 import * as usage from './usage.ts'
 import * as jobs from './jobs.ts'
+import * as handoff from './handoff.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -629,7 +630,7 @@ export async function answerQuestion(id: number, body: any) {
 // ---------------------------------------------------------------------------------------------
 // Tools: calls the channel MCP server forwards on behalf of Claude.
 
-const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for', 'set_priority', 'set_model', 'set_mcp_servers'])
+const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for', 'set_priority', 'set_model', 'set_mcp_servers', 'fresh_context'])
 
 export function setPriority(name: string, priority: unknown) {
   if (!sessions.get(name)) throw new Error(`no session "${name}"`)
@@ -660,6 +661,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
         priority: s.priority, usage_share: usage.shareOf(s.name, all),
         model: s.model, effort: s.effort, launch: { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' },
         mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : [],
+        context_used: usage.context(s.name)?.used ?? null, fresh_context: handoff.enabled(s),
       }))
     }
     case 'set_status': {
@@ -696,6 +698,15 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       const now = sessions.get(String(a.name))!
       return { name: a.name, mcp_servers: now.mcp_servers ? Object.keys(JSON.parse(now.mcp_servers)) : [], note }
     }
+    case 'fresh_context': {
+      const s = sessions.get(String(a.name))
+      if (!s) throw new Error(`no session "${a.name}"`)
+      if (a.auto !== undefined) {
+        handoff.setEnabled(s.name, a.auto)
+        return { name: s.name, auto: handoff.enabled(sessions.get(s.name)!), at_percent: config.handoffAt }
+      }
+      return { name: s.name, ...(await handoff.ask(s, true)) }
+    }
     case 'set_priority':
       setPriority(String(a.name), a.priority)
       return { name: a.name, priority: a.priority }
@@ -719,6 +730,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       if (!cwd) throw new Error('cwd is required (or new_project, or clone)')
       await startSession(a.name, { cwd, role: 'worker', model: a.model, effort: a.effort, mcpServers: a.mcp_servers })
       if (a.priority) setPriority(a.name, a.priority)
+      if (typeof a.fresh_context === 'boolean') handoff.setEnabled(a.name, a.fresh_context)
       if (a.initial_prompt) sendMessage({ from: caller, to: a.name, body: a.initial_prompt, source: 'send_message' })
       return { started: a.name, cwd, note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
     }

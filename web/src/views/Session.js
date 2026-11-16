@@ -56,6 +56,8 @@ export function Session() {
     phone && tab !== 'activity' && { label: 'Activity log', icon: 'activity', run: () => setTab('activity') },
     phone && tab !== 'chat' && { label: 'Conversation', icon: 'chat', run: () => setTab('chat') },
     { label: 'Model and effort', icon: 'settings', run: () => (modelSheet.value = name) },
+    !down && { label: 'Fresh context', icon: 'restart', run: () => confirm(`Give ${name} a fresh context? It writes down where it is, then restarts fresh (not resumed) once it is idle.`)
+      && sessionAction(name, 'handoff').catch(e => alert(e.message)) },
     { label: `Priority: ${s.priority ?? 'normal'}`, icon: 'up', run: () => {
       // normal → low → high → normal. Near a usage limit, low-priority sessions get only your messages.
       const next = { normal: 'low', low: 'high', high: 'normal' }[s.priority ?? 'normal']

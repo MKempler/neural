@@ -65,6 +65,7 @@ const ORCHESTRATOR_TOOLS = [
     model: str('Model to run it on, kept across restarts: an alias (sonnet, opus, haiku) or a full model name. Default: Claude Code\'s default. A cheaper model saves quota for routine work'),
     effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'Effort level, kept across restarts (default: Claude Code\'s default)' },
     mcp_servers: { type: 'object', description: 'Extra MCP servers for this session only, kept across restarts: {"name": {"command": "...", "args": [...], "env": {...}}} or {"name": {"type": "http", "url": "..."}}. Stored in Neural\'s database, so prefer servers that read their keys from their own config over keys in env' },
+    fresh_context: { type: 'boolean', description: 'Near a full context, have it write a handoff note and restart it fresh instead of letting Claude Code compact (default off for workers)' },
     priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'low: work that can wait. Near a usage limit Neural holds messages from other sessions to it until the reset (default normal)' },
   }, ['name']),
   tool('set_model', 'Change the model and/or effort a session runs on, kept across restarts. An idle session is restarted with it at once (its conversation resumes); a busy one switches after its turn. Use "default" to go back to Claude Code\'s default.', {
@@ -76,6 +77,10 @@ const ORCHESTRATOR_TOOLS = [
     name: str('Session name'),
     mcp_servers: { type: 'object', description: '{"server-name": {"command": "...", "args": [...], "env": {...}} | {"type": "http", "url": "...", "headers": {...}} | null}' },
   }, ['name', 'mcp_servers']),
+  tool('fresh_context', 'Give a session (or yourself) a fresh context: Neural asks it to write down its state, then restarts it fresh (not resumed) once it has and is idle. With auto, instead turn on or off doing this by itself when its context passes the threshold (on by default for the orchestrator).', {
+    name: str('Session name (your own for yourself)'),
+    auto: { type: 'boolean', description: 'Turn the automatic handoff on or off instead of starting one now' },
+  }, ['name']),
   tool('set_priority', 'Mark a session high, normal or low priority. Near a usage limit, low-priority sessions are the ones to pause: Neural holds messages from other sessions to them until the limit resets (the user\'s messages still go through).', {
     name: str('Session name'),
     priority: { type: 'string', enum: ['high', 'normal', 'low'] },

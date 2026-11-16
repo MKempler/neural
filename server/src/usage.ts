@@ -48,6 +48,7 @@ export function record(name: string, payload: any): string {
     }
     store.set(name, ctx)
     broadcast({ type: 'usage', session: name, context: ctx })
+    void import('./handoff.ts').then(h => h.onContext(name, ctx.used))
   }
 
   // Each window can be missing (API-key sessions have neither, and they appear only after the first reply).

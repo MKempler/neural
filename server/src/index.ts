@@ -23,6 +23,7 @@ import * as projects from './projects.ts'
 import { scrubArchive } from './scrub.ts'
 import * as health from './health.ts'
 import * as jobs from './jobs.ts'
+import * as handoff from './handoff.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
 import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup, setLaunch } from './spawner.ts'
@@ -159,6 +160,11 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
           const body = await readJson(req)
           const when = await setLaunch(name, { model: body.model, effort: body.effort, mcpServers: body.mcp_servers })
           return { ...sessions.get(name), applies: when }
+        }
+        if (action === 'handoff') {
+          const s = sessions.get(name)
+          if (!s) throw new HttpError(404, 'unknown session')
+          return handoff.ask(s, true)
         }
         if (action === 'priority') {
           setPriority(name, (await readJson(req)).priority)

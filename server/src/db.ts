@@ -64,6 +64,7 @@ export type Session = {
   note: string | null
   note_at: string | null
   mcp_servers: string | null
+  handoff: number | null
 }
 
 export type Message = {

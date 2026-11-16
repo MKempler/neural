@@ -9,6 +9,7 @@ import { channels, setStatus, sessionChanged, bus, turns, activity } from './liv
 import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
 import * as health from './health.ts'
+import * as handoff from './handoff.ts'
 
 export const mux: Mux = new Tmux(config.tmuxSocket)
 
@@ -374,6 +375,7 @@ export async function stopSession(name: string) {
   setStatus(name, 'stopped')
   health.forget(name)
   health.setDown(name, null)
+  handoff.forget(name)
   await mux.kill(name)
   sessions.update(name, { ended_at: new Date().toISOString(), channel_connected: 0 })
   permissions.expire(name)
@@ -390,8 +392,17 @@ export async function restartSession(name: string) {
   return startSession(name, { resume: true })
 }
 
+/** Restart without resuming: a fresh context (a handoff). */
+export async function freshStart(name: string) {
+  await ensureClaude()
+  await mux.kill(name)
+  sessions.update(name, { restarts: 0 })
+  return startSession(name, { resume: false })
+}
+
 export async function removeSession(name: string) {
   health.forget(name)
+  handoff.forget(name)
   await mux.kill(name)
   sessions.remove(name)
   usage.remove(name)
@@ -494,6 +505,8 @@ export async function reconcile() {
         await import('./router.ts').then(r => r.settleIfIdle(s.name)).catch(() => {})
       }
       health.checkRecovered(sessions.get(s.name) ?? s)
+      // Asked to write down its state for a fresh context: restart it once it has and is quiet.
+      if (!refreshedThisPass) await handoff.check(sessions.get(s.name) ?? s).catch(e => events.add(s.name, 'handoff-failed', { error: String(e) }))
       continue
     }
     if (s.status === 'starting' && Date.now() - Date.parse(s.updated_at) < 10_000) continue

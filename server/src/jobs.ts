@@ -18,7 +18,8 @@ export interface Job {
   cwd: string | null; timeout_s: number; enabled: number; created_by: string | null; created_at: string
   next_run_at: string | null; failures: number
 }
-export interface Run { id: number; job_id: number; started_at: string; finished_at: string | null; status: string; exit_code: number | null; output: string | null; trigger: string }
+export interface Run { id: number; job_id: number; started_at: string; finished_at: string | null; status: string; exit_code: number | null; output: string | null; trigger: string; pid: number | null }
+type Result = { status: string; code: number | null; output: string }
 
 const q = <T>(sql: string) => {
   const st = db.prepare(sql)
@@ -188,56 +189,111 @@ export async function runJob(name: string, trigger: 'schedule' | 'manual' = 'man
   q('UPDATE jobs SET next_run_at = ? WHERE id = ?').run(new Date(nextRun(j.schedule)).toISOString(), j.id)
   const runId = Number(q('INSERT INTO job_runs (job_id, trigger) VALUES (?, ?)').run(j.id, trigger).lastInsertRowid)
   changed(name)
-  let result: { status: string; code: number | null; output: string }
+  let result: Result
   try {
-    result = j.command ? await runCommand(j) : await sendPrompt(j)
+    result = j.command ? await runCommand(j, runId) : await sendPrompt(j)
   } catch (e) {
     result = { status: 'failed', code: null, output: String((e as Error).message ?? e) }
   }
+  return finish(j, runId, result)
+}
+
+async function finish(j: Job, runId: number, result: Result): Promise<Run> {
   q(`UPDATE job_runs SET finished_at = ${NOW}, status = ?, exit_code = ?, output = ? WHERE id = ?`).run(result.status, result.code, clean(result.output), runId)
   q('DELETE FROM job_runs WHERE job_id = ? AND id <= ?').run(j.id, runId - KEEP_RUNS)
-  await settle(j, result)
-  changed(name)
+  await settle(jobs.get(j.name) ?? j, result)
+  changed(j.name)
   return q<Run>('SELECT * FROM job_runs WHERE id = ?').get(runId)!
 }
 
-function runCommand(j: Job): Promise<{ status: string; code: number | null; output: string }> {
+// A command's output and exit status go to files, not to the hub, so a run outlives a hub restart (a code
+// reload): the next hub process finds it by its process group, waits for it, and reads its result.
+const runFiles = (runId: number) => {
+  const dir = path.join(config.dataDir, 'jobs')
+  return { dir, out: path.join(dir, `${runId}.out`), exit: path.join(dir, `${runId}.exit`) }
+}
+
+/** The command's result once its process group is gone: the exit status it wrote, and its output's tail. */
+function collect(runId: number, timedOut: boolean): Result {
+  const f = runFiles(runId)
+  let output = ''
+  try {
+    const fd = fs.openSync(f.out, 'r')
+    const size = fs.fstatSync(fd).size
+    const buf = Buffer.alloc(Math.min(size, OUTPUT_MAX))
+    fs.readSync(fd, buf, 0, buf.length, size - buf.length)
+    fs.closeSync(fd)
+    output = buf.toString()
+  } catch {
+    // no output
+  }
+  let code: number | null = null
+  try {
+    code = Number(fs.readFileSync(f.exit, 'utf8').trim())
+    if (!Number.isInteger(code)) code = null
+  } catch {
+    // killed before it could write one
+  }
+  for (const file of [f.out, f.exit]) fs.rmSync(file, { force: true })
+  if (timedOut) return { status: 'timeout', code, output }
+  if (code === null) return { status: 'failed', code, output: output + '\n(the command was killed before it finished)' }
+  return { status: code === 0 ? 'ok' : 'failed', code, output }
+}
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Wait for a process group to finish, stopping it at the job's timeout. Polls, so it works for a run started
+ *  by an earlier hub process too. */
+function waitForGroup(j: Job, runId: number, pid: number, startedAt: number): Promise<Result> {
   return new Promise(resolve => {
-    let out = ''
-    const keep = (d: Buffer) => {
-      out += d.toString()
-      if (out.length > OUTPUT_MAX * 2) out = out.slice(-OUTPUT_MAX)
-    }
-    const child = spawn('/bin/sh', ['-c', j.command!], {
-      cwd: j.cwd ?? os.homedir(),
-      env: { ...process.env, PATH: jobPath(), NEURAL_JOB: j.name, NEURAL_CLI: path.join(ROOT, 'bin/neural') },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true, // its own process group, so a timeout stops everything it started
-    })
-    const killAll = () => {
+    let timedOut = false
+    const kill = () => {
       try {
-        process.kill(-child.pid!, 'SIGTERM')
+        process.kill(-pid, 'SIGTERM')
       } catch {
         // already gone
       }
     }
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      killAll()
-    }, j.timeout_s * 1000)
-    running.set(j.id, { kill: killAll })
-    child.stdout.on('data', keep)
-    child.stderr.on('data', keep)
-    const done = (code: number | null, err?: Error) => {
-      clearTimeout(timer)
+    running.set(j.id, { kill })
+    const tick = setInterval(() => {
+      if (!timedOut && Date.now() - startedAt > j.timeout_s * 1000) {
+        timedOut = true
+        kill()
+      }
+      if (alive(pid)) return
+      clearInterval(tick)
       running.delete(j.id)
-      const output = (err ? `${err.message}\n` : '') + out.slice(-OUTPUT_MAX)
-      resolve({ status: timedOut ? 'timeout' : code === 0 ? 'ok' : 'failed', code, output })
-    }
-    child.on('error', e => done(null, e))
-    child.on('close', code => done(code))
+      resolve(collect(runId, timedOut))
+    }, POLL_MS)
   })
+}
+const POLL_MS = Number(process.env.NEURAL_JOB_POLL_MS ?? 1000)
+
+async function runCommand(j: Job, runId: number): Promise<Result> {
+  const f = runFiles(runId)
+  fs.mkdirSync(f.dir, { recursive: true })
+  const out = fs.openSync(f.out, 'a')
+  // sh runs the command, then writes its exit status; both run in their own process group (detached), which
+  // a timeout stops as a whole.
+  const child = spawn('/bin/sh', ['-c', '/bin/sh -c "$1"; echo $? > "$2"', 'neural-job', j.command!, f.exit], {
+    cwd: j.cwd ?? os.homedir(),
+    env: { ...process.env, PATH: jobPath(), NEURAL_JOB: j.name, NEURAL_CLI: path.join(ROOT, 'bin/neural') },
+    stdio: ['ignore', out, out],
+    detached: true,
+  })
+  fs.closeSync(out)
+  child.unref()
+  if (!child.pid) return { status: 'failed', code: null, output: 'could not start /bin/sh' }
+  child.on('error', () => {})
+  q('UPDATE job_runs SET pid = ? WHERE id = ?').run(child.pid, runId)
+  return waitForGroup(j, runId, child.pid, Date.now())
 }
 
 async function sendPrompt(j: Job) {
@@ -283,7 +339,17 @@ export async function runDue() {
   }
 }
 
-/** At startup: runs cut off by a hub restart are marked as such. */
-export function markInterrupted() {
-  q(`UPDATE job_runs SET status = 'interrupted', finished_at = ${NOW} WHERE status = 'running'`).run()
+/** At startup: runs still going from an earlier hub process are waited for and recorded as usual; ones whose
+ *  process is gone without a result (or from before results were kept in files) are marked interrupted. */
+export function adoptRunning() {
+  for (const r of q<Run & { name: string }>("SELECT r.*, j.name FROM job_runs r JOIN jobs j ON j.id = r.job_id WHERE r.status = 'running'").all()) {
+    const j = jobs.get(r.name)!
+    const hasResult = fs.existsSync(runFiles(r.id).exit) || fs.existsSync(runFiles(r.id).out)
+    if (r.pid && (alive(r.pid) || hasResult)) {
+      void waitForGroup(j, r.id, r.pid, Date.parse(r.started_at)).then(result => finish(j, r.id, result))
+    } else {
+      q(`UPDATE job_runs SET status = 'interrupted', finished_at = ${NOW}, output = ? WHERE id = ?`)
+        .run('Neural restarted while this ran, and its result was not recorded.', r.id)
+    }
+  }
 }

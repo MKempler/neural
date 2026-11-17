@@ -55,6 +55,8 @@ Object.assign(process.env, {
   NEURAL_RECOVERED_MS: '500',
   NEURAL_JOBS_MS: '300',
   NEURAL_HANDOFF_IDLE_MS: '300',
+  NEURAL_JOB_POLL_MS: '100',
+  NEURAL_STARTUP_ATTENTION_MS: '2000',
 })
 
 const killTmux = () => {
@@ -1344,6 +1346,95 @@ test('a session with a background shell still running is not restarted until it 
   await idle('hw')
   await sp.setLaunch('hw', { effort: 'default' })
   await idle('hw')
+})
+
+test('a job still running when the hub restarts is picked up again and its result recorded', async () => {
+  const { db } = await import('../server/src/db.ts')
+  const jobs = await import('../server/src/jobs.ts')
+  const { spawn } = await import('node:child_process')
+  jobs.addJob('main', { name: 'long', schedule: 'daily 03:00', command: 'true', cwd: tmp })
+  const job = jobs.jobs.get('long')!
+  // As an earlier hub process would have left it: a run in the database, its process still going.
+  const runId = Number(db.prepare('INSERT INTO job_runs (job_id) VALUES (?)').run(job.id).lastInsertRowid)
+  const dir = path.join(tmp, 'jobs')
+  fs.mkdirSync(dir, { recursive: true })
+  const out = fs.openSync(path.join(dir, `${runId}.out`), 'a')
+  const child = spawn('/bin/sh', ['-c', '/bin/sh -c "$1"; echo $? > "$2"', 'x', 'sleep 0.5; echo rendered; exit 4', path.join(dir, `${runId}.exit`)], { detached: true, stdio: ['ignore', out, out] })
+  child.unref()
+  db.prepare('UPDATE job_runs SET pid = ? WHERE id = ?').run(child.pid, runId)
+  // And one whose process is gone with no result: that one really was cut off.
+  const lost = Number(db.prepare("INSERT INTO job_runs (job_id, pid) VALUES (?, 999999)").run(job.id).lastInsertRowid)
+  jobs.adoptRunning()
+  const run = await until('the adopted run finished', () => {
+    const r: any = db.prepare('SELECT * FROM job_runs WHERE id = ?').get(runId)
+    return r.status !== 'running' ? r : null
+  })
+  assert.deepEqual([run.status, run.exit_code], ['failed', 4])
+  assert.match(run.output, /rendered/)
+  assert.equal((db.prepare('SELECT status FROM job_runs WHERE id = ?').get(lost) as any).status, 'interrupted')
+  await messageWhere('main told', m => m.from_name === 'neural' && /\*\*Job long failed\*\*: exited with status 4/.test(m.body))
+  jobs.removeJob('long')
+})
+
+test('neural notify prints its usage for --help, and refuses unknown options instead of sending them', async () => {
+  // Run without blocking: the hub answering the CLI lives in this process.
+  const { execFile } = await import('node:child_process')
+  const cli = (args: string[]) => new Promise<{ code: number; out: string }>(resolve => {
+    const child = execFile(path.join(here, '../bin/neural'), ['notify', ...args], { env: process.env }, (e: any, out, err) => resolve({ code: e?.code ?? 0, out: out + err }))
+    child.stdin!.end()
+  })
+  const before = (await get('/api/messages?limit=500')).length
+  assert.equal((await cli(['--help'])).code, 0)
+  assert.match((await cli(['-h'])).out, /^usage: neural notify/)
+  assert.equal((await cli(['--frm', 'x', 'hello'])).code, 2)
+  assert.equal((await cli(['--to'])).code, 2)
+  const sent = await cli(['--from', 'dash', '--', '-5 degrees outside'])
+  assert.equal(sent.code, 0, sent.out)
+  await messageWhere('the dash message', m => m.from_name === 'job:dash' && m.body === '-5 degrees outside')
+  assert.equal((await get('/api/messages?limit=500')).length, before + 1)
+})
+
+test('a turn that says it stopped at the usage limit is treated as cut off by it; a transient error is retried', async () => {
+  const usage = await import('../server/src/usage.ts')
+  const { handleHook, turnFailed } = await import('../server/src/router.ts')
+  await idle('hw')
+  const resets = Math.floor(Date.now() / 1000) + 3600
+  usage.record('hw', { rate_limits: { five_hour: { used_percentage: 100, resets_at: resets }, seven_day: { used_percentage: 50, resets_at: resets + 86400 } } })
+  handleHook('hw', 'UserPromptSubmit', { prompt: 'go' })
+  handleHook('hw', 'Stop', { last_assistant_message: 'My usage limit was reached partway through the fix pass. The fixes are committed.' })
+  const s = await session('hw')
+  assert.equal(s.status, 'limited')
+  assert.match(s.status_detail, /Stopped at the 5-hour usage limit · resets \d{1,2}:\d\d[ap]m/)
+  // Back to normal for the rest of the tests.
+  usage.record('hw', { rate_limits: { five_hour: { used_percentage: 5, resets_at: resets + 5 * 3600 }, seven_day: { used_percentage: 50, resets_at: resets + 86400 } } })
+  ;(await import('../server/src/router.ts')).limitReset('hw', Date.now())
+  await idle('hw')
+  // The same words with plenty of quota left are just words.
+  handleHook('hw', 'UserPromptSubmit', { prompt: 'go' })
+  handleHook('hw', 'Stop', { last_assistant_message: 'Explained how the usage limit was reached in the test.' })
+  assert.equal((await session('hw')).status, 'idle')
+  await turnFailed('hw', 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', 'server_error')
+  assert.equal((await session('hw')).status, 'attention')
+  await messageWhere('the retry', m => m.from_name === 'system' && m.to_name === 'hw' && /temporary API error/.test(m.body))
+  await messageWhere('carried on', m => m.from_name === 'hw' && m.body.startsWith('echo: Your last turn stopped on a temporary API error'))
+  await idle('hw')
+  await idle('main')
+})
+
+test("Claude Code's prompt to trust Neural's uploads folder is answered", async () => {
+  await api('POST', '/api/sessions', { name: 'adddir1', cwd: tmp, prompt: 'past the trust prompt' })
+  await messageWhere('reply', m => m.from_name === 'adddir1' && m.body === 'echo: past the trust prompt')
+  const { events } = await import('../server/src/db.ts')
+  assert.ok(events.recent('adddir1', 50).some((e: any) => e.event === 'dialog' && JSON.parse(e.payload).dialog === 'add-directory'))
+  await (await import('../server/src/spawner.ts')).removeSession('adddir1')
+})
+
+test('after a startup prompt Neural does not know is answered by hand, the known ones that follow still are', async () => {
+  await api('POST', '/api/sessions', { name: 'odd1', cwd: tmp })
+  await until('needs attention', async () => (await session('odd1')).status === 'attention')
+  await api('POST', '/api/sessions/odd1/keys', { keys: ['y'] })
+  await idle('odd1')
+  await (await import('../server/src/spawner.ts')).removeSession('odd1')
 })
 
 test('uploads over the size limit are refused', async () => {

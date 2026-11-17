@@ -154,20 +154,31 @@ const commands: Record<string, () => Promise<void> | void> = {
     let from = 'script'
     const files: string[] = []
     const words: string[] = []
+    const usage = 'usage: neural notify [--to user|<session>] [--from <job>] [--file <path>]... [--] <text, or - to read stdin>'
+    let options = true
     for (let i = 0; i < args.length; i++) {
       const a = args[i]
-      if (a === '--to') to = args[++i]
-      else if (a === '--from') from = args[++i]
-      else if (a === '--file') files.push(path.resolve(args[++i]))
-      else words.push(a)
+      if (options && (a === '--help' || a === '-h')) return console.log(usage)
+      if (options && a === '--') options = false
+      else if (options && a === '--to') to = args[++i]
+      else if (options && a === '--from') from = args[++i]
+      else if (options && a === '--file') files.push(args[++i])
+      else if (options && a.startsWith('-') && a !== '-') {
+        // A mistyped option would otherwise be sent as the message.
+        console.error(`neural notify: unknown option ${a} (put text that starts with - after --)\n${usage}`)
+        process.exitCode = 2
+        return
+      } else words.push(a)
     }
-    let text = words.join(' ')
-    if (text === '-' || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, 'utf8')
-    if (!text.trim() && !files.length) {
-      console.error('usage: neural notify [--to user|<session>] [--from <job>] [--file <path>]... <text, or - to read stdin>')
+    if ([to, from].some(v => v === undefined) || files.some(f => !f)) {
+      console.error(`neural notify: an option is missing its value\n${usage}`)
       process.exitCode = 2
       return
     }
+    files.splice(0, files.length, ...files.map(f => path.resolve(f)))
+    let text = words.join(' ')
+    if (text === '-' || (!text && !files.length && !process.stdin.isTTY)) text = fs.readFileSync(0, 'utf8')
+    if (!text.trim() && !files.length) return console.log(usage) // nothing to send
     try {
       const res = await fetch(hubUrl + '/api/notify', {
         method: 'POST',

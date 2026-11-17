@@ -59,13 +59,13 @@ const isUp = (k: string) => k === '\x1b[A' || k === '\x1bOA'
 
 process.stdin.setRawMode(true)
 
-// Optional startup dialog, to exercise the spawner's dialog handling.
-if (name?.startsWith('dlg') && !arg('--resume')) {
-  const options = ['Exit', 'I am using this for local development']
+// Optional startup dialogs, to exercise the spawner's dialog handling: like Claude Code's, a select list
+// whose first option exits.
+async function selectDialog(title: string, options: string[]): Promise<number> {
   let selected = 0
   const draw = () => {
     console.clear()
-    console.log('WARNING: Loading development channels\n')
+    console.log(`${title}\n`)
     options.forEach((o, i) => console.log(`${i === selected ? '❯' : ' '} ${i + 1}. ${o}`))
   }
   draw()
@@ -81,8 +81,22 @@ if (name?.startsWith('dlg') && !arg('--resume')) {
     })
   })
   process.stdin.removeAllListeners('data')
-  if (choice !== 1) process.exit(0)
   console.clear()
+  return choice
+}
+if (!arg('--resume') && /^(dlg|adddir|odd)/.test(name ?? '')) {
+  // A prompt Neural doesn't know, answered by hand with "y".
+  if (name!.startsWith('odd')) {
+    console.log('Something new from Claude Code. Continue? (y/n)')
+    await new Promise<void>(resolve => process.stdin.on('data', d => String(d).includes('y') && resolve()))
+    process.stdin.removeAllListeners('data')
+  }
+  // Claude Code 2.1.326: trusting the --add-dir folder (Neural's uploads).
+  if (name!.startsWith('adddir') || name!.startsWith('odd')) {
+    const dir = arg('--add-dir')!
+    if (await selectDialog(`Adding a new directory: …/${path.basename(path.dirname(dir))}/${path.basename(dir)}\nThis session hasn't worked here before. Is this a directory you created or one you trust?`, ['No, exit', 'Yes, add it']) !== 1) process.exit(0)
+  }
+  if (await selectDialog('WARNING: Loading development channels', ['Exit', 'I am using this for local development']) !== 1) process.exit(0)
 }
 
 console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId} model=${arg('--model') ?? 'default'} effort=${arg('--effort') ?? 'default'} servers=${Object.keys(mcpServers).sort().join(',')}`)

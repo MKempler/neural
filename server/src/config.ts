@@ -85,6 +85,8 @@ export const config = {
   handoffAt: Number(env('HANDOFF_AT') ?? file.handoffAt ?? 60),
   // How long a session must have been quiet before that restart, so a conversation isn't cut off.
   handoffIdleMs: Number(env('HANDOFF_IDLE_MS') ?? 30_000),
+  // How long a session may sit at startup prompts Neural doesn't recognise before it is shown as needing attention.
+  startupAttentionMs: Number(env('STARTUP_ATTENTION_MS') ?? 90_000),
   recoveredAfterMs: Number(env('RECOVERED_MS') ?? 60_000),
   retryMs: Number(env('RETRY_MS') ?? 10_000),
   // How often to look for scheduled jobs that are due.

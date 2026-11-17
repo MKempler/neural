@@ -559,7 +559,7 @@ export async function start() {
       }
     }, ms).unref()
   }
-  jobs.markInterrupted()
+  jobs.adoptRunning()
   // The guide is kept current while Neural runs too, not only at startup (a change reaches main when it next restarts).
   tick(reconcile, config.reconcileMs)
   tick(async () => installGuide(), 60_000)
@@ -598,7 +598,18 @@ export async function start() {
 export function stop() {
   lifecycle.stopping = true
   for (const ws of wss.clients) ws.terminate() // browsers, channel servers and live terminals
-  return new Promise(resolve => server.close(resolve))
+  // server.close waits for every open request to finish; one that never does (a stalled client) once kept a
+  // reload from completing, leaving Neural unreachable. Give them a moment, then cut what's left.
+  return new Promise<void>(resolve => {
+    const timer = setTimeout(() => {
+      server.closeAllConnections()
+      resolve()
+    }, 3000)
+    server.close(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

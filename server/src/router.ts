@@ -288,7 +288,13 @@ export async function turnFailed(name: string, text: string, kind = '') {
       : config.autoContinue
         ? 'When it resets, Neural tells the session to carry on with the task.'
         : 'Send a message after it resets and the session picks up where it left off.'
-    : 'Send a message to try again.'
+    : transient(text, kind) && config.autoContinue
+      ? 'It looks temporary, so Neural asks the session to carry on in a couple of minutes.'
+      : 'Send a message to try again.'
+  if (!limit && transient(text, kind) && config.autoContinue && Date.now() - (retried.get(name) ?? 0) > 30 * 60_000) {
+    retried.set(name, Date.now())
+    retryDue.set(name, Date.now())
+  }
   sendMessage({
     from: name, to: 'user', source: 'error',
     body: `**${limit ? 'Usage limit reached.' : 'This turn stopped with an error.'}** ${text}\n\n${after}`,
@@ -298,6 +304,13 @@ export async function turnFailed(name: string, text: string, kind = '') {
 // ---------------------------------------------------------------------------------------------
 // After a usage limit resets: a session whose turn was cut off is told to carry on, so long work finishes
 // without the user having to notice the reset and type "continue".
+
+/** Errors on Anthropic's side that usually pass (a 500, overloaded, a dropped connection). */
+const transient = (text: string, kind: string) =>
+  /server_error|overloaded|api_error|internal server error|\b5\d\d\b|timed? ?out|connection (?:error|reset)|ECONNRESET|socket hang up/i.test(`${kind} ${text}`)
+/** Sessions whose turn failed on a transient error, to be told to carry on once (per half hour). */
+const retryDue = new Map<string, number>()
+const retried = new Map<string, number>()
 
 /** Sessions whose limit has reset, with when it reset, waiting to be told to carry on. */
 const resumeDue = new Map<string, number>()
@@ -319,6 +332,19 @@ export function limitReset(name: string, at: number) {
 
 /** On the reconcile timer: nudge the next session that is still quiet a grace period after its reset. */
 export function resumeInterrupted(now = Date.now()) {
+  for (const [name, at] of retryDue) {
+    if (now - at < config.resumeGraceMs) continue
+    retryDue.delete(name)
+    const s = sessions.get(name)
+    // Only if it is still stopped on that error, and nothing else has given it something to do since.
+    if (!s || s.status !== 'attention' || !channels.has(name) || outbox.pending(name).length || outbox.pushed(name).length) continue
+    setStatus(name, 'idle')
+    events.add(name, 'auto-retry', null)
+    sendMessage({
+      from: 'system', to: name, source: 'system',
+      body: "Your last turn stopped on a temporary API error. Carry on with what you were doing, and don't repeat work that is already done. (Sent automatically by Neural.)",
+    })
+  }
   if (now - lastResume < RESUME_SPACING_MS) return
   const due = [...resumeDue.entries()]
     .filter(([, at]) => now - at >= config.resumeGraceMs)
@@ -466,8 +492,27 @@ function onTurnEnd(name: string, payload: any) {
     setStatus(name, 'working')
   } else {
     turns.delete(name)
-    setStatus(name, 'idle')
+    if (!stoppedAtLimit(name, last)) setStatus(name, 'idle')
   }
+}
+
+/** A turn that ended normally but says it stopped at the usage limit (a tool or subagent ran into it, so
+ *  Claude Code reported no failure), while the account's limit is in fact used up: treat it as cut off by the
+ *  limit, so it is told to carry on after the reset like any other. */
+function stoppedAtLimit(name: string, last: string): boolean {
+  if (!/\b(?:usage|rate)[ -]limit\b[^.\n]{0,40}\b(?:reached|hit|exceeded)|\b(?:hit|reached|ran into) (?:your|the|my|our) (?:5-hour |weekly |usage )?limit/i.test(last)) return false
+  const acc = usage.account()
+  const now = Date.now() / 1000
+  const [key, w] = (['five_hour', 'seven_day'] as const).map(k => [k, acc?.[k]] as const)
+    .find(([, w]) => w && w.resets_at > now && w.used >= 95) ?? []
+  if (!key || !w) return false
+  const at = new Date(w.resets_at * 1000)
+  const h = at.getHours()
+  const when = `${h % 12 || 12}:${String(at.getMinutes()).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`
+  const detail = `Stopped at the ${key === 'seven_day' ? 'weekly' : '5-hour'} usage limit · resets ${key === 'seven_day' ? `${at.toLocaleDateString([], { weekday: 'short' })} ` : ''}${when}`
+  setStatus(name, 'limited', detail)
+  events.add(name, 'usage-limit', { text: detail, inferred: true })
+  return true
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -290,6 +290,13 @@ const DIALOGS: { name: string; when: RegExp; choose: RegExp }[] = [
   { name: 'development-channels', when: /development channels?|local development/i, choose: /local development/i },
   { name: 'folder-trust', when: /trust (this|the) (folder|files)|Do you trust/i, choose: /^\W*(\d+\.\s*)?Yes/i },
   { name: 'mcp-consent', when: /New MCP server found/i, choose: /Use this MCP server/i },
+  // Claude Code 2.1.326 asks before a session may use an --add-dir folder it hasn't worked in. The only one
+  // Neural adds is its own uploads folder, so only that one is accepted.
+  {
+    name: 'add-directory',
+    when: new RegExp(`Adding a new directory[\\s\\S]*${path.basename(config.uploadsDir).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'),
+    choose: /Yes, add it/i,
+  },
 ]
 
 /** Keys that select the option matching `want` in a Claude Code select dialog, or null if it isn't on screen. */
@@ -341,14 +348,19 @@ async function passStartupDialogs(name: string) {
 }
 
 async function watchStartup(name: string) {
-  const deadline = Date.now() + 90_000
+  // After 90 seconds the session is shown as needing attention, but the watch goes on (more slowly): once
+  // someone answers a prompt Neural doesn't know, the ones it does know that follow are still answered.
+  const attentionAt = Date.now() + config.startupAttentionMs
+  const giveUpAt = Date.now() + 30 * 60_000
   const fired = new Map<string, number>()
   let screen = ''
-  while (Date.now() < deadline) {
-    await sleep(700)
+  let flagged = false
+  while (Date.now() < giveUpAt) {
+    await sleep(flagged ? 3000 : 700)
     if (channels.has(name)) return // the channel server only starts once the dialogs are behind us
     const s = sessions.get(name)
-    if (!s || s.status !== 'starting') return
+    if (!s || !['starting', 'attention'].includes(s.status)) return
+    if (flagged && s.status !== 'attention') return
     try {
       screen = await mux.capture(name)
     } catch {
@@ -374,11 +386,12 @@ async function watchStartup(name: string) {
       await sleep(1500)
       break
     }
-  }
-  if (!channels.has(name) && sessions.get(name)?.status === 'starting') {
-    // Don't guess at a screen we don't recognise: show it and let the user answer from the terminal view.
-    events.add(name, 'startup-timeout', { screen })
-    setStatus(name, 'attention', 'Startup did not finish. Open the terminal view to see what it is waiting for.\n' + tail(screen))
+    if (!flagged && Date.now() > attentionAt && !channels.has(name) && sessions.get(name)?.status === 'starting') {
+      // Don't guess at a screen we don't recognise: show it and let the user answer from the terminal view.
+      flagged = true
+      events.add(name, 'startup-timeout', { screen })
+      setStatus(name, 'attention', 'Startup did not finish. Open the terminal view to see what it is waiting for.\n' + tail(screen))
+    }
   }
 }
 

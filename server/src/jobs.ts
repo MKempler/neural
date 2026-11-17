@@ -100,6 +100,14 @@ export const jobs = {
   lastRun: (jobId: number) => q<Run>('SELECT * FROM job_runs WHERE job_id = ? ORDER BY id DESC LIMIT 1').get(jobId),
 }
 
+/** The command job that was running in `cwd` (or a folder above it) at the ISO time `at`, if any. */
+export function jobAt(cwd: string, at: string): string | null {
+  const rows = q<{ name: string; cwd: string | null }>(
+    `SELECT j.name, j.cwd FROM job_runs r JOIN jobs j ON j.id = r.job_id
+     WHERE j.command IS NOT NULL AND r.started_at <= ? AND (r.finished_at IS NULL OR r.finished_at >= ?) ORDER BY r.id DESC`).all(at, at)
+  return rows.find(r => r.cwd && (cwd === r.cwd || cwd.startsWith(r.cwd.replace(/\/$/, '') + '/')))?.name ?? null
+}
+
 /** A job as the app and the tools show it: with its last run. */
 export function view(j: Job) {
   const last = jobs.lastRun(j.id)

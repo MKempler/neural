@@ -706,7 +706,8 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
         priority: s.priority, usage_share: usage.shareOf(s.name, all),
         model: s.model, effort: s.effort, launch: { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' },
         mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : [],
-        context_used: usage.context(s.name)?.used ?? null, fresh_context: handoff.enabled(s),
+        context_used: usage.context(s.name)?.used ?? null,
+        fresh_context: handoff.enabled(s) ? handoff.threshold(s) : false,
       }))
     }
     case 'set_status': {
@@ -746,9 +747,10 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
     case 'fresh_context': {
       const s = sessions.get(String(a.name))
       if (!s) throw new Error(`no session "${a.name}"`)
-      if (a.auto !== undefined) {
-        handoff.setEnabled(s.name, a.auto)
-        return { name: s.name, auto: handoff.enabled(sessions.get(s.name)!), at_percent: config.handoffAt }
+      if (a.auto !== undefined || a.at_percent !== undefined || a.at_tokens !== undefined) {
+        handoff.setEnabled(s.name, a.auto ?? Boolean(handoff.enabled(s)), { percent: a.at_percent, tokens: a.at_tokens })
+        const now = sessions.get(s.name)!
+        return { name: s.name, auto: handoff.enabled(now), ...handoff.threshold(now) }
       }
       return { name: s.name, ...(await handoff.ask(s, true)) }
     }

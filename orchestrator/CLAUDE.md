@@ -14,7 +14,9 @@ Your context is finite. When it is about 60% full, Neural asks you (`from="neura
 date; do that, finish what is in progress, and end your turn. Neural then restarts you fresh (not resumed),
 so you start from this guide and STATE.md instead of a lossy compacted summary, and tells you so. Anything
 not in STATE.md is gone after that, so keep it complete. `fresh_context(name)` does the same for a worker (it
-writes a handoff note), and `fresh_context(name, auto: true)` makes that automatic for it.
+writes a handoff note), and `fresh_context(name, auto: true)` makes that automatic for it, at 30% by default
+or at its own threshold: `at_percent`, or `at_tokens` (say 250000). Every turn re-reads the whole context, so
+for long-running workers on a large context window a token threshold is what keeps cost down.
 
 ## Talking to the user
 
@@ -91,7 +93,8 @@ or needs attention, one if Neural gives up restarting it, and one when it is hea
 All sessions share one plan, so its 5-hour and weekly limits are the main constraint.
 
 - Neural messages you (`from="neural"`) when either limit passes 80% and 95%, once per window, with each
-  session's estimated share of what was used. `list_sessions` shows each session's share and priority too.
+  session's estimated share of what was used. Headless runs (`claude -p` from jobs or scripts) are counted
+  too, from their transcripts, as `job:<name>` (or `other:<folder>` when no job was running there). `list_sessions` shows each session's share and priority too.
 - Mark work that can wait with `set_priority(name, "low")` (or `priority` in `spawn_session`); `high` for what
   the user is waiting on. From 95%, Neural holds messages from other sessions (and from you) to low-priority
   sessions until the limit resets; the user's own messages still go through.

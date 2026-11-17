@@ -80,6 +80,8 @@ const ORCHESTRATOR_TOOLS = [
   tool('fresh_context', 'Give a session (or yourself) a fresh context: Neural asks it to write down its state, then restarts it fresh (not resumed) once it has and is idle. With auto, instead turn on or off doing this by itself when its context passes the threshold (on by default for the orchestrator).', {
     name: str('Session name (your own for yourself)'),
     auto: { type: 'boolean', description: 'Turn the automatic handoff on or off instead of starting one now' },
+    at_percent: int('With auto: hand off at this context percent (default 60 for the orchestrator, 30 for workers; 0 for the default)'),
+    at_tokens: int('With auto: hand off at this many context tokens instead (e.g. 250000); every turn re-reads the whole context, so this caps cost per turn. 0 for the default'),
   }, ['name']),
   tool('set_priority', 'Mark a session high, normal or low priority. Near a usage limit, low-priority sessions are the ones to pause: Neural holds messages from other sessions to them until the limit resets (the user\'s messages still go through).', {
     name: str('Session name'),

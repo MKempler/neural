@@ -29,7 +29,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean; handoffAt?: number } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean; handoffAt?: number; handoffWorkerAt?: number } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -83,6 +83,8 @@ export const config = {
   // Context percent at which a session (the orchestrator, and workers that opt in) is asked to write down its
   // state and is then restarted with a fresh context instead of being compacted. 0 turns it off.
   handoffAt: Number(env('HANDOFF_AT') ?? file.handoffAt ?? 60),
+  // The same for workers that have handoffs turned on: lower, since every turn re-reads the whole context.
+  handoffWorkerAt: Number(env('HANDOFF_WORKER_AT') ?? file.handoffWorkerAt ?? 30),
   // How long a session must have been quiet before that restart, so a conversation isn't cut off.
   handoffIdleMs: Number(env('HANDOFF_IDLE_MS') ?? 30_000),
   // How long a session may sit at startup prompts Neural doesn't recognise before it is shown as needing attention.

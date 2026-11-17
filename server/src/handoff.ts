@@ -35,21 +35,31 @@ async function send(to: string, body: string) {
   sendMessage({ from: 'neural', to, body, source: 'handoff' })
 }
 
+/** When the session should hand off: its own threshold (percent or tokens), else its role's default. */
+export function threshold(s: Session): { percent: number | null; tokens: number | null } {
+  if (s.handoff_at != null || s.handoff_tokens != null) return { percent: s.handoff_at, tokens: s.handoff_tokens }
+  return { percent: (s.role === 'orchestrator' ? config.handoffAt : config.handoffWorkerAt) || null, tokens: null }
+}
+
 /** A context reading came in: past the threshold, ask once for the handoff. */
-export function onContext(name: string, used: number | null) {
+export function onContext(name: string, used: number | null, size: number | null = null) {
   const s = sessions.get(name)
   if (!s || used == null || !config.handoffAt || !enabled(s) || stateOf(name)) return
-  if (used >= config.handoffAt) void ask(s, false)
+  const t = threshold(s)
+  const tokens = size ? (used / 100) * size : null
+  if ((t.percent && used >= t.percent) || (t.tokens && tokens != null && tokens >= t.tokens)) void ask(s, false, tokens)
 }
 
 /** Ask the session to write down its state; the restart follows once it has (see check). */
-export async function ask(s: Session, manual: boolean) {
+export async function ask(s: Session, manual: boolean, tokens: number | null = null) {
   if (stateOf(s.name)) return { already: true }
   const file = stateFile(s)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   setState(s.name, { asked_at: Date.now(), mtime: mtime(file), manual })
   events.add(s.name, 'handoff-asked', { file, manual })
-  const why = manual ? 'The user asked for a fresh context.' : `Your context is about ${config.handoffAt}% full.`
+  const used = sessionsContext(s.name)
+  const why = manual ? 'A fresh context was asked for.'
+    : `Your context is ${used != null ? `${used}% full` : 'filling up'}${tokens ? ` (about ${Math.round(tokens / 1000)}K tokens, re-read on every turn)` : ''}.`
   await send(s.name, `**Time for a fresh context.** ${why} Bring ${file} up to date so a fresh session can carry on from it: `
     + `what is running and where each piece of work stands, decisions made and why, open questions, and next steps. `
     + `When it's saved and you have nothing in progress, end your turn. Neural then restarts you with a fresh context `
@@ -87,10 +97,27 @@ export async function check(s: Session) {
   await send(s.name, `You were restarted with a fresh context (not resumed) to keep you sharp. Read ${file} first: it is where you left off. Then carry on.`)
 }
 
-/** Turn handoffs on or off for a session (null: the default for its role). */
-export function setEnabled(name: string, on: boolean | null) {
+const sessionsContext = (name: string) => usageStore.get<{ used: number | null }>(name)?.used ?? null
+
+/** Turn handoffs on or off for a session (null: the default for its role), and optionally set its threshold:
+ *  a context percent, or a token count (0 clears it, back to the default). */
+export function setEnabled(name: string, on: boolean | null, at?: { percent?: unknown; tokens?: unknown }) {
   if (!sessions.get(name)) throw new Error(`no session "${name}"`)
-  sessions.update(name, { handoff: on === null ? null : on ? 1 : 0 })
+  const fields: Partial<Session> = { handoff: on === null ? null : on ? 1 : 0 }
+  if (at?.percent !== undefined) {
+    const p = Number(at.percent)
+    if (!Number.isFinite(p) || p < 0 || p > 95) throw new Error('at_percent must be between 5 and 95 (0 for the default)')
+    if (p && p < 5) throw new Error('at_percent must be between 5 and 95 (0 for the default)')
+    fields.handoff_at = p ? Math.round(p) : null
+    if (p) fields.handoff_tokens = null
+  }
+  if (at?.tokens !== undefined) {
+    const t = Number(at.tokens)
+    if (!Number.isFinite(t) || t < 0 || (t && t < 20_000)) throw new Error('at_tokens must be at least 20000 (0 for the default)')
+    fields.handoff_tokens = t ? Math.round(t) : null
+    if (t) fields.handoff_at = null
+  }
+  sessions.update(name, fields)
   if (!on) setState(name, null)
   sessionChanged(name)
 }

@@ -1302,7 +1302,7 @@ test('near a full context the orchestrator writes STATE.md and is restarted fres
 test('a fresh context can be asked for by hand, for a worker too', async () => {
   const before = await idle('hw')
   await api('POST', '/api/sessions/hw/handoff')
-  const asked = await messageWhere('asked', m => m.from_name === 'neural' && m.to_name === 'hw' && /The user asked for a fresh context/.test(m.body))
+  const asked = await messageWhere('asked', m => m.from_name === 'neural' && m.to_name === 'hw' && /A fresh context was asked for/.test(m.body))
   const file = path.join(tmp, 'uploads/handoff/hw.md')
   assert.ok(asked.body.includes(file))
   fs.writeFileSync(file, 'hw state\n')
@@ -1435,6 +1435,54 @@ test('after a startup prompt Neural does not know is answered by hand, the known
   await api('POST', '/api/sessions/odd1/keys', { keys: ['y'] })
   await idle('odd1')
   await (await import('../server/src/spawner.ts')).removeSession('odd1')
+})
+
+test('a worker can hand off at its own threshold, in context tokens', async () => {
+  const usage = await import('../server/src/usage.ts')
+  const handoff = await import('../server/src/handoff.ts')
+  await idle('main')
+  const sent = await say('main', `tool fresh_context ${JSON.stringify({ name: 'hw', auto: true, at_tokens: 100_000 })}`)
+  const r = await messageWhere('set', m => m.from_name === 'main' && m.in_reply_to === sent.id)
+  assert.match(r.body, /"tokens": 100000/)
+  usage.record('hw', { context_window: { used_percentage: 8, context_window_size: 1_000_000 } }) // 80K: not yet
+  await new Promise(res => setTimeout(res, 300))
+  assert.equal(handoff.pending('hw'), false)
+  usage.record('hw', { context_window: { used_percentage: 12, context_window_size: 1_000_000 } }) // 120K
+  const asked = await messageWhere('asked', m => m.from_name === 'neural' && m.to_name === 'hw' && /about 120K tokens/.test(m.body))
+  assert.match(asked.body, /12% full/)
+  handoff.setEnabled('hw', false)
+  assert.equal(handoff.pending('hw'), false)
+  await idle('main')
+})
+
+test("headless runs' usage is counted from their transcripts, under the job that ran them", async () => {
+  const { db } = await import('../server/src/db.ts')
+  const jobs = await import('../server/src/jobs.ts')
+  const usage = await import('../server/src/usage.ts')
+  const work = path.join(tmp, 'pipeline')
+  fs.mkdirSync(work, { recursive: true })
+  jobs.addJob('main', { name: 'pipeline', schedule: 'daily 03:00', command: 'true', cwd: work })
+  const runId = Number(db.prepare('INSERT INTO job_runs (job_id) VALUES (?)').run(jobs.jobs.get('pipeline')!.id).lastInsertRowid)
+  // What `claude -p` leaves in ~/.claude/projects: a reply written as two lines, each repeating its usage.
+  const reply = (uuid: string, cwd: string, id: string) => JSON.stringify({
+    type: 'assistant', uuid, sessionId: 'headless-1', cwd, timestamp: new Date().toISOString(),
+    message: { id, role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'researching' }],
+      usage: { input_tokens: 1000, output_tokens: 2000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 0 } },
+  })
+  const dir = path.join(tmp, 'transcripts', 'pipeline-project')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'headless-1.jsonl'), [reply('h1', work, 'msg_1'), reply('h2', work, 'msg_1'), reply('h3', '/somewhere/else', 'msg_2')].join('\n') + '\n')
+  const expected = usage.costOf('claude-opus-5-5', { input_tokens: 1000, output_tokens: 2000, cache_read_input_tokens: 1_000_000 })
+  const row: any = await until('logged', () => {
+    const r: any = db.prepare("SELECT SUM(cost) AS c FROM usage_log WHERE session = 'job:pipeline'").get()
+    return r.c != null ? r : null
+  })
+  assert.ok(Math.abs(row.c - expected) < 1e-9, `${row.c} vs ${expected}`) // once, not twice
+  await until('the other folder', () => db.prepare("SELECT 1 FROM usage_log WHERE session = 'other:else'").get())
+  const window = { five_hour: { used: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 }, seven_day: null, at: '' }
+  assert.ok(usage.shares(window).five_hour!.some(x => x.name === 'job:pipeline'))
+  db.prepare("UPDATE job_runs SET status = 'ok', finished_at = ? WHERE id = ?").run(new Date().toISOString(), runId)
+  jobs.removeJob('pipeline')
 })
 
 test('uploads over the size limit are refused', async () => {

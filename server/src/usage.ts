@@ -48,7 +48,7 @@ export function record(name: string, payload: any): string {
     }
     store.set(name, ctx)
     broadcast({ type: 'usage', session: name, context: ctx })
-    void import('./handoff.ts').then(h => h.onContext(name, ctx.used))
+    void import('./handoff.ts').then(h => h.onContext(name, ctx.used, ctx.size))
   }
 
   // Each window can be missing (API-key sessions have neither, and they appear only after the first reply).
@@ -131,6 +131,38 @@ export function nearLimit(acc = account()) {
 /** Messages from other sessions to this one wait until the limit resets. */
 export function held(name: string) {
   return config.quotaHold && sessions.get(name)?.priority === 'low' && nearLimit()
+}
+
+// ---------------------------------------------------------------------------------------------
+// Usage outside Neural's sessions: headless runs (`claude -p`, often from scheduled jobs) and other Claude Code
+// sessions on the machine use the same plan but have no status line reporting to Neural. Their transcripts
+// are archived, though, and each reply records its tokens, so their cost is estimated from those and logged
+// under the job that was running in that folder ("job:<name>"), else "other:<folder>".
+
+/** $ per million input tokens; output costs 5x, writing the cache 1.25x and reading it 0.1x. */
+const PRICE: [RegExp, number][] = [[/opus/i, 5], [/sonnet/i, 3], [/haiku/i, 1]]
+const seenReplies = new Set<string>()
+
+export function costOf(model: string, u: any): number {
+  const per = PRICE.find(([re]) => re.test(model))?.[1] ?? 3
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const units = n(u?.input_tokens) + 5 * n(u?.output_tokens) + 1.25 * n(u?.cache_creation_input_tokens) + 0.1 * n(u?.cache_read_input_tokens)
+  return (units * per) / 1e6
+}
+
+/** A transcript reply from outside Neural's sessions: log its estimated cost against the job (or folder). */
+export function logOutside(entry: any, jobFor: (cwd: string, at: string) => string | null) {
+  const msg = entry?.message
+  if (!msg?.usage || !msg.id || msg.model === '<synthetic>') return
+  // A reply is written as several lines (one per content block), each repeating its usage: count it once.
+  if (seenReplies.has(msg.id)) return
+  seenReplies.add(msg.id)
+  if (seenReplies.size > 20_000) seenReplies.clear()
+  const cost = costOf(String(msg.model ?? ''), msg.usage)
+  if (cost <= 0) return
+  const cwd = String(entry.cwd ?? '')
+  const job = cwd ? jobFor(cwd, String(entry.timestamp ?? new Date().toISOString())) : null
+  logSpend(job ? `job:${job}` : `other:${cwd ? cwd.split('/').filter(Boolean).pop() : 'unknown'}`, cost)
 }
 
 const names = (list: Share[] | undefined) => (list?.length ? list.slice(0, 6).map(s => `${s.name} ${s.share}%`).join(', ') : 'no readings yet')

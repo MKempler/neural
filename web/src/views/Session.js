@@ -93,7 +93,7 @@ export function Session() {
         </header>`
       : html`<header class="session-head">
           <div class="title">
-            <h1>${name} <${StatusPill} status=${s.status} /></h1>
+            <h1>${name} <${StatusPill} status=${s.status} background=${s.background} /></h1>
             <div class="meta">
               ${s.role === 'orchestrator' && html`<span>orchestrator</span>`}
               ${chip && html`<button class="model-chip" title="Change model or effort" onClick=${() => (modelSheet.value = name)}>${chip}</button>`}

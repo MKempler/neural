@@ -1289,12 +1289,15 @@ test('near a full context the orchestrator writes STATE.md and is restarted fres
   await new Promise(r => setTimeout(r, 1200))
   assert.equal((await session('main')).claude_session_id, before.claude_session_id)
   fs.writeFileSync(path.join(tmp, 'STATE.md'), '# State\n- hw: waiting on review\n')
-  await messageWhere('told after the restart', m => m.from_name === 'neural' && m.to_name === 'main' && /restarted with a fresh context \(not resumed\)/.test(m.body), 20_000)
+  const told = await messageWhere('told after the restart', m => m.from_name === 'neural' && m.to_name === 'main' && /restarted with a fresh context \(not resumed\)/.test(m.body), 20_000)
   const after = await until('a new conversation', async () => {
     const s = await session('main')
     return s.status === 'idle' && s.channel_connected && s.claude_session_id !== before.claude_session_id ? s : null
   })
   assert.equal(after.context, null) // the old reading is gone
+  // Read by the new process as its first prompt, not pushed into the old one as it went away.
+  const { outbox } = await import('../server/src/db.ts')
+  await until('the note read by the new process', () => outbox.get(told.id)?.acked_by === 'prompt' || null)
   assert.equal(JSON.parse(events.recent('main', 50).find((e: any) => e.event === 'spawn').payload).resume, false)
   assert.equal((await get('/api/messages?limit=500')).filter((m: any) => m.from_name === 'neural' && /Time for a fresh context/.test(m.body)).length, 1)
 })
@@ -1310,8 +1313,23 @@ test('a fresh context can be asked for by hand, for a worker too', async () => {
     const s = await session('hw')
     return s.status === 'idle' && s.channel_connected && s.claude_session_id !== before.claude_session_id
   }, 20_000)
-  await messageWhere('told', m => m.from_name === 'neural' && m.to_name === 'hw' && m.body.includes(`Read ${file} first`))
+  const told = await messageWhere('told', m => m.from_name === 'neural' && m.to_name === 'hw' && m.body.includes(`Read ${file} first`))
+  const { outbox } = await import('../server/src/db.ts')
+  await until('the note read by the new process', () => outbox.get(told.id)?.acked_by === 'prompt' || null)
   await idle('main')
+})
+
+test('a message pushed to a session in the moment its old process goes away reaches the new one', async () => {
+  const { outbox } = await import('../server/src/db.ts')
+  const { restartSession } = await import('../server/src/spawner.ts')
+  const { sendMessage } = await import('../server/src/router.ts')
+  await idle('hw')
+  await restartSession('hw')
+  // As if the push had gone into the old process's socket before it closed: marked pushed, never read.
+  const m = sendMessage({ from: 'neural', to: 'hw', body: 'sent during the restart', source: 'test' })
+  if (outbox.get(m.id)?.state === 'pending') outbox.markPushed(m.id, 'channel')
+  await until('read by the new process', () => outbox.get(m.id)?.acked_by === 'prompt' || null, 20_000)
+  await idle('hw')
 })
 
 test('a session left at a startup prompt with nobody answering it is picked up again', async () => {
@@ -1334,6 +1352,8 @@ test('a session with a background shell still running is not restarted until it 
   await until('footer shows the shell', async () => /1 shell · ↓ to manage/.test((await get('/api/screen/hw')).screen))
   await idle('hw')
   assert.equal(await sp.backgroundWork(rows.get('hw')!), '1 shell')
+  // The app and list_sessions show it as idle with a shell running, not just idle.
+  await until('shown with its shell', async () => (await session('hw')).background === '1 shell')
   const before = events.recent('hw', 200).filter((e: any) => e.event === 'refresh').length
   rows.update('hw', { launch_rev: 'older' })
   await new Promise(r => setTimeout(r, 2000)) // several reconcile passes, idle well past the refresh delay
@@ -1344,6 +1364,7 @@ test('a session with a background shell still running is not restarted until it 
   await until('refreshed once the shell is done', () => events.recent('hw', 200).filter((e: any) => e.event === 'refresh').length > before, 20_000)
   await until('restarted with low effort', async () => /model=default effort=low/.test((await get('/api/screen/hw')).screen))
   await idle('hw')
+  await until('no longer shown with a shell', async () => (await session('hw')).background === null)
   await sp.setLaunch('hw', { effort: 'default' })
   await idle('hw')
 })

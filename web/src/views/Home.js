@@ -113,7 +113,7 @@ export function SessionCard({ s }) {
   const from = m ? (m.from_name === 'user' ? 'you' : m.from_name === s.name ? '' : m.from_name) : ''
   return html`<div class="card" role="link" tabindex="0" onClick=${() => navigate(sessionPath(s.name))}
       onKeyDown=${e => e.key === 'Enter' && navigate(sessionPath(s.name))} aria-label=${`Open ${s.name}`}>
-    <div class="card-top"><span class="card-name">${s.name}</span><${StatusPill} status=${s.status} /></div>
+    <div class="card-top"><span class="card-name">${s.name}</span><${StatusPill} status=${s.status} background=${s.background} /></div>
     <div class="card-meta">
       ${s.role === 'orchestrator' && html`<span class="tag accent">orchestrator</span>`}
       ${modelChip(s) && html`<span class="tag">${modelChip(s)}</span>`}

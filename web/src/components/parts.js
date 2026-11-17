@@ -8,8 +8,9 @@ export function Dot({ status }) {
   return html`<span class=${`dot ${status}`} aria-hidden="true"></span>`
 }
 
-export function StatusPill({ status }) {
-  return html`<span class=${`pill ${status}`}><${Dot} status=${status} />${STATUS[status] ?? status}</span>`
+export function StatusPill({ status, background }) {
+  const label = STATUS[status] ?? status
+  return html`<span class=${`pill ${status}`}><${Dot} status=${status} />${status === 'idle' && background ? `${label} · ${background} running` : label}</span>`
 }
 
 /** Why a session is down and what Neural is doing about it (the hub keeps it as JSON on the session). */

@@ -28,6 +28,16 @@ export const activity = new Map<string, number>()
 /** What each session is doing right now ("Editing auth.ts"), shown live in the app while a turn runs. */
 export const doing = new Map<string, { text: string; since: number }>()
 
+/** Background shells, tasks or agents an idle session still has running ("1 shell"), read from its footer. */
+export const background = new Map<string, string>()
+
+export function setBackground(name: string, what: string | null) {
+  if ((background.get(name) ?? null) === what) return
+  if (what) background.set(name, what)
+  else background.delete(name)
+  sessionChanged(name)
+}
+
 export function setDoing(name: string, text: string | null) {
   if (text === null) {
     if (!doing.delete(name)) return
@@ -56,6 +66,7 @@ export function setStatus(name: string, status: string, detail: string | null = 
   if (before.status === status && before.status_detail === detail) return
   sessions.update(name, { status, status_detail: detail })
   if (status !== 'working' && status !== 'blocked') setDoing(name, null)
+  if (status !== 'idle') background.delete(name)
   sessionChanged(name)
   bus.emit(`status:${name}`, status)
   if (status === 'attention' || status === 'exited') bus.emit('trouble', name, status, detail)
@@ -67,12 +78,12 @@ export function sessionChanged(name: string) {
 }
 
 /** A session row for the app: extra MCP servers by name only, since their env and headers can hold keys. */
-export function publicSession<T extends { mcp_servers?: string | null }>(s: T) {
+export function publicSession<T extends { name: string; mcp_servers?: string | null }>(s: T) {
   let names: string[] = []
   try {
     names = s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : []
   } catch {
     // unreadable: none shown
   }
-  return { ...s, mcp_servers: names }
+  return { ...s, mcp_servers: names, background: background.get(s.name) ?? null }
 }

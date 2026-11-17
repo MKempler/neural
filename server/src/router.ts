@@ -3,7 +3,7 @@ import { sessions, messages, outbox, events, permissions, questions, type Messag
 import { Driver, type PlanAnswer, type QuestionAnswer } from './dialogs.ts'
 import { redact, clean } from './redact.ts'
 import { searchAll } from './embed.ts'
-import { broadcast, bus, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing } from './live.ts'
+import { broadcast, bus, channels, sendToChannel, setStatus, sessionChanged, turns, activity, setDoing, background } from './live.ts'
 import { notify } from './push.ts'
 import { claimFor, checkUnclaimed, describeForClaude, forMessages, importFile, summary } from './files.ts'
 import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, validName, claudeAgent, ensureClaude, launchFields, setLaunch, mergeServers, setServers } from './spawner.ts'
@@ -523,11 +523,12 @@ export function channelConnected(name: string) {
   events.add(name, 'channel-connected', null)
   health.connected(name)
   const s = sessions.get(name)!
+  // Nothing pushed before this connection reached this process: a new process never saw it, and a reconnect
+  // (hub restart) may have dropped pushes that were in flight. Send them again.
+  for (const row of outbox.pushed(name)) outbox.requeue(row.message_id, 'channel reconnected')
   if (s.status === 'starting' || s.status === 'attention' || s.status === 'exited') becomeReady(name)
   else {
     sessionChanged(name)
-    // A reconnect (hub restart) may have dropped pushes that were in flight; send them again.
-    for (const row of outbox.pushed(name)) outbox.requeue(row.message_id, 'channel reconnected')
     setTimeout(() => flush(name), 1500)
   }
 }
@@ -702,6 +703,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       const all = usage.shares()
       return sessions.all().map(s => ({
         name: s.name, role: s.role, status: s.status, cwd: s.cwd, connected: Boolean(s.channel_connected), you: s.name === caller,
+        background: background.get(s.name) ?? null, // idle, but with shells or tasks still running ("1 shell")
         note: s.note ? { text: s.note, at: s.note_at } : null,
         priority: s.priority, usage_share: usage.shareOf(s.name, all),
         model: s.model, effort: s.effort, launch: { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' },

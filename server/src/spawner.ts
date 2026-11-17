@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { ROOT, config, hubUrl, findBin } from './config.ts'
 import { sessions, events, permissions, outbox, usage, questions, type Session } from './db.ts'
-import { channels, setStatus, sessionChanged, bus, turns, activity, lifecycle } from './live.ts'
+import { channels, setStatus, sessionChanged, bus, turns, activity, lifecycle, setBackground } from './live.ts'
 import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
 import * as health from './health.ts'
@@ -271,6 +271,14 @@ export async function startSession(
   const s = sessions.get(name)!
   turns.delete(name)
   permissions.expire(name)
+  // The previous process is dead, but its channel socket can take a moment to close. Drop it now: a message sent
+  // in that moment (such as the note that follows a fresh-context restart) would be pushed into it and lost.
+  const old = channels.get(name)
+  if (old) {
+    channels.delete(name)
+    old.terminate()
+    sessions.update(name, { channel_connected: 0 })
+  }
   // Whatever was pushed to the previous process without confirmation goes out again once this one is ready.
   for (const row of outbox.pushed(name)) outbox.requeue(row.message_id, 'session restarted')
 
@@ -530,6 +538,7 @@ export async function reconcile() {
         const at = r.resetTime(s.status_detail ?? '', Date.parse(s.updated_at))
         if (at && Date.now() > at) r.limitReset(s.name, at)
       }
+      await noteBackground(sessions.get(s.name) ?? s)
       // Started with an older Neural setup: restart it, once it's idle, to pick up the new one. One per pass.
       if (!refreshedThisPass && (await refreshIfOutdated(s))) {
         refreshedThisPass = true
@@ -657,13 +666,29 @@ export async function backgroundWork(s: Session): Promise<string | null> {
   } catch {
     return null
   }
+  const found = footerWork(screen)
+  if (found) return found
+  if ((await claudeAgent(s))?.status === 'busy') return 'busy according to Claude Code'
+  return null
+}
+
+/** What Claude Code's footer says is still running in the background ("1 shell"), or null. */
+export function footerWork(screen: string): string | null {
   const lines = screen.split('\n').filter(l => l.trim())
   const footer = lines.slice(-3).join('\n')
   const m = /·\s*(\d+\s+(?:shells?|background tasks?|tasks?|agents?|monitors?))\b/i.exec(footer)
     ?? /\b(\d+\s+(?:shells?|background tasks?|tasks?|agents?)) still running\b/i.exec(lines.slice(-10).join('\n'))
-  if (m) return m[1]
-  if ((await claudeAgent(s))?.status === 'busy') return 'busy according to Claude Code'
-  return null
+  return m ? m[1] : null
+}
+
+/** Idle, but with background work still running: shown as "idle · 1 shell running" in the app and list_sessions. */
+async function noteBackground(s: Session) {
+  if (s.status !== 'idle' || !s.channel_connected) return setBackground(s.name, null)
+  try {
+    setBackground(s.name, footerWork(await mux.capture(s.name)))
+  } catch {
+    // can't read the terminal this pass: keep what was shown
+  }
 }
 
 const refreshedAt = new Map<string, number>()

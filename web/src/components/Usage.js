@@ -2,7 +2,7 @@
 // session's context window is. Both come from Claude Code's status line, so they appear after a session's
 // first reply, and the limits only for claude.ai subscriptions.
 import { useEffect, useState } from 'preact/hooks'
-import { html, clock, api } from '../lib.js'
+import { html, when as at, api } from '../lib.js'
 import { usage } from '../store.js'
 
 /** A window as it stands now: one past its reset time has started over. */
@@ -11,13 +11,8 @@ function current(w, now = Date.now()) {
   return w.resets_at * 1000 > now ? { ...w, reset: false } : { ...w, used: 0, reset: true }
 }
 
-/** "20:20" today, "Mon 14:00" later in the week. */
-function when(unix) {
-  const d = new Date(unix * 1000)
-  const time = clock(d.toISOString())
-  if (d.toDateString() === new Date().toDateString()) return time
-  return `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`
-}
+/** "1:50 pm" today, "Thu 9:00 am" later in the week. */
+const when = unix => at(unix * 1000)
 
 const level = used => (used >= 90 ? 'bad' : used >= 75 ? 'warn' : '')
 

@@ -5,6 +5,7 @@
 import { config } from './config.ts'
 import { sessions, usage as store, usageLog, prefs } from './db.ts'
 import { broadcast } from './live.ts'
+import { when } from './clock.ts'
 
 /** A usage-limit window: percent used, and when it resets (Unix seconds). */
 export interface Window { used: number; resets_at: number }
@@ -67,16 +68,14 @@ export function record(name: string, payload: any): string {
   return line(ctx, acc)
 }
 
-const hhmm = (unix: number) => new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
-
-/** "context 41% · 5-hour 62% (resets 20:20) · week 41%" */
+/** "context 41% · 5-hour 62% (resets 8:20 pm) · week 41%" */
 export function line(ctx: Context | null, acc: Account | null, now = Date.now()): string {
   const live = (w: Window | null | undefined) => (w && w.resets_at * 1000 > now ? w : null)
   const five = live(acc?.five_hour)
   const week = live(acc?.seven_day)
   return [
     ctx?.used != null ? `context ${ctx.used}%` : null,
-    five ? `5-hour ${five.used}% (resets ${hhmm(five.resets_at)})` : null,
+    five ? `5-hour ${five.used}% (resets ${when(five.resets_at * 1000)})` : null,
     week ? `week ${week.used}%` : null,
   ].filter(Boolean).join(' · ')
 }
@@ -185,7 +184,7 @@ function checkQuota(acc: Account) {
 
 function quotaNotice(key: keyof typeof SPAN, w: Window, level: number) {
   const low = sessions.all().filter(s => s.priority === 'low' && s.status !== 'stopped').map(s => s.name)
-  const resets = new Date(w.resets_at * 1000).toLocaleString([], { weekday: key === 'seven_day' ? 'short' : undefined, hour: '2-digit', minute: '2-digit', hour12: false })
+  const resets = when(w.resets_at * 1000)
   const lines = [
     `**${LABEL[key]} usage is at ${w.used}%** (resets ${resets}).`,
     `Used so far in this window, estimated from each session's cost: ${names(shares()[key])}.`,

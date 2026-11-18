@@ -746,7 +746,7 @@ test('the status line feeds the usage and context meter', async () => {
   }
   await say('main', `usage ${JSON.stringify(reading)}`)
   const m = await messageWhere('the status line output', (m: any) => m.from_name === 'main' && m.body.startsWith('status line: '))
-  assert.match(m.body, /^status line: context 41% · 5-hour 62% \(resets \d\d:\d\d\) · week 41%$/)
+  assert.match(m.body, /^status line: context 41% · 5-hour 62% \(resets (?:\w{3} )?\d{1,2}:\d\d [ap]m\) · week 41%$/)
   assert.deepEqual((await get('/api/state')).usage.five_hour, { used: 62, resets_at: reset })
   const ctx = (await session('main')).context
   assert.deepEqual([ctx.used, ctx.size, ctx.cost], [41, 1_000_000, 1.234])
@@ -1176,6 +1176,27 @@ test('scripts and jobs send messages with `neural notify`, which needs the secre
   await idle('main')
 })
 
+test('clock times read as 12-hour, the same on the server and in the app', async () => {
+  const server = await import('../server/src/clock.ts')
+  const web = await import('../web/src/clock.js')
+  const now = new Date(2026, 10, 18, 9, 30) // a Wednesday
+  const cases: [Date, string][] = [
+    [new Date(2026, 10, 18, 13, 50), '1:50 pm'],
+    [new Date(2026, 10, 18, 0, 5), '12:05 am'],
+    [new Date(2026, 10, 18, 12, 0), '12:00 pm'],
+    [new Date(2026, 10, 20, 9, 0), 'Fri 9:00 am'],
+    [new Date(2026, 10, 16, 21, 15), 'Mon 9:15 pm'],
+    [new Date(2026, 10, 30, 8, 0), 'Nov 30 8:00 am'],
+  ]
+  for (const [d, want] of cases) {
+    assert.equal(server.when(d, now), want)
+    assert.equal(web.when(d, now), want)
+    assert.equal(server.when(d.getTime(), now), want)
+  }
+  assert.equal(server.clock(new Date(2026, 0, 1, 23, 59)), '11:59 pm')
+  assert.equal(web.clock(new Date(2026, 0, 1, 23, 59).toISOString()), '11:59 pm')
+})
+
 test('job schedules: intervals, daily and weekday times, and cron', async () => {
   const { nextRun, parseSchedule } = await import('../server/src/jobs.ts')
   const fri = new Date(2026, 10, 13, 10, 0).getTime() // a Friday, 10:00
@@ -1425,7 +1446,7 @@ test('a turn that says it stopped at the usage limit is treated as cut off by it
   handleHook('hw', 'Stop', { last_assistant_message: 'My usage limit was reached partway through the fix pass. The fixes are committed.' })
   const s = await session('hw')
   assert.equal(s.status, 'limited')
-  assert.match(s.status_detail, /Stopped at the 5-hour usage limit · resets \d{1,2}:\d\d[ap]m/)
+  assert.match(s.status_detail, /Stopped at the 5-hour usage limit · resets (?:\w{3} )?\d{1,2}:\d\d [ap]m$/)
   // Back to normal for the rest of the tests.
   usage.record('hw', { rate_limits: { five_hour: { used_percentage: 5, resets_at: resets + 5 * 3600 }, seven_day: { used_percentage: 50, resets_at: resets + 86400 } } })
   ;(await import('../server/src/router.ts')).limitReset('hw', Date.now())

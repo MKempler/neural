@@ -10,6 +10,7 @@ import { mux, startSession, stopSession, restartSession, waitFor, markHealthy, v
 import * as projects from './projects.ts'
 import * as health from './health.ts'
 import * as usage from './usage.ts'
+import * as clock from './clock.ts'
 import * as jobs from './jobs.ts'
 import * as handoff from './handoff.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
@@ -506,10 +507,7 @@ function stoppedAtLimit(name: string, last: string): boolean {
   const [key, w] = (['five_hour', 'seven_day'] as const).map(k => [k, acc?.[k]] as const)
     .find(([, w]) => w && w.resets_at > now && w.used >= 95) ?? []
   if (!key || !w) return false
-  const at = new Date(w.resets_at * 1000)
-  const h = at.getHours()
-  const when = `${h % 12 || 12}:${String(at.getMinutes()).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`
-  const detail = `Stopped at the ${key === 'seven_day' ? 'weekly' : '5-hour'} usage limit · resets ${key === 'seven_day' ? `${at.toLocaleDateString([], { weekday: 'short' })} ` : ''}${when}`
+  const detail = `Stopped at the ${key === 'seven_day' ? 'weekly' : '5-hour'} usage limit · resets ${clock.when(w.resets_at * 1000)}`
   setStatus(name, 'limited', detail)
   events.add(name, 'usage-limit', { text: detail, inferred: true })
   return true

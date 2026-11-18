@@ -1,14 +1,8 @@
 // Scheduled jobs (run by Neural; see server/src/jobs.ts): what runs when, how the last run went, its output,
 // and Run now, Pause and Delete. Jobs are added by sessions with the add_job tool.
 import { useEffect, useState } from 'preact/hooks'
-import { html, api, ago, clock } from '../lib.js'
+import { html, api, ago, when } from '../lib.js'
 import { jobs, loadJobs } from '../store.js'
-
-/** "08:00" today, "Tue 08:00" later. */
-function when(iso) {
-  const d = new Date(iso)
-  return d.toDateString() === new Date().toDateString() ? clock(iso) : `${d.toLocaleDateString([], { weekday: 'short' })} ${clock(iso)}`
-}
 
 export function JobsSection() {
   useEffect(() => {

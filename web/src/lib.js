@@ -38,7 +38,7 @@ export function ago(ts, now = Date.now()) {
   return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
-export const clock = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+export { clock, when } from './clock.js'
 
 export function dayLabel(ts) {
   const d = new Date(ts)

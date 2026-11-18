@@ -168,6 +168,20 @@ test('a request body with a character split across chunks arrives intact', async
   assert.equal(JSON.parse(hook.payload).message, 'split 🎉 café')
 })
 
+test('a channel server of an earlier launch is refused, so it cannot pass for the new process', async () => {
+  const secret = fs.readFileSync(path.join(tmp, 'secret'), 'utf8').trim()
+  const refused = (query: string) => new Promise<number>(resolve => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/channel?name=main&secret=${secret}${query}`)
+    ws.on('open', () => { ws.terminate(); resolve(101) })
+    ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0))
+    ws.on('error', () => resolve(-1))
+  })
+  assert.equal(await refused('&launch=from-the-process-before'), 409)
+  assert.equal(await refused(''), 409)
+  // The current process's channel was left alone.
+  assert.equal((await idle('main')).channel_connected, 1)
+})
+
 test('an answer given without the reply tool still reaches the user', async () => {
   const sent = await say('main', 'noreply please')
   const net = await messageWhere('stop-hook message', m => m.source === 'stop_hook' && m.body === `terminal answer to ${sent.id}`)

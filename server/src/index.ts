@@ -26,7 +26,7 @@ import * as jobs from './jobs.ts'
 import * as handoff from './handoff.ts'
 import { spawn } from 'node:child_process'
 import { watchForChanges, webVersion } from './reload.ts'
-import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup, setLaunch } from './spawner.ts'
+import { mux, startSession, stopSession, restartSession, removeSession, reconcile, resumeStartup, setLaunch, launchToken } from './spawner.ts'
 
 const WEB = path.join(ROOT, 'web')
 const TYPES: Record<string, string> = {
@@ -411,6 +411,9 @@ server.on('upgrade', (req, socket, head) => {
       if (!secretOk(url.searchParams.get('secret'))) throw new HttpError(403, 'bad secret')
       const name = url.searchParams.get('name') ?? ''
       if (!sessions.get(name)) throw new HttpError(404, 'unknown session')
+      // A channel server of an earlier launch (still shutting down) must not stand in for the current process.
+      const token = launchToken(name)
+      if (token && url.searchParams.get('launch') !== token) throw new HttpError(409, 'channel of an earlier launch')
       wss.handleUpgrade(req, socket, head, ws => onChannel(ws, name))
     } else if (url.pathname === '/term') {
       checkBrowser(req)

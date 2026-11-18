@@ -86,9 +86,18 @@ function runConfig(s: Session) {
   return { mcpFile, settingsFile, mcp, settings, own, ownFile }
 }
 
-function writeRunFiles(s: Session) {
+// Each launch gets a token its channel server presents when it connects. The previous process's channel server
+// outlives it for a moment and reconnects; without the token the hub took it for the new process, marked the session
+// ready while the new one still sat at a startup dialog, and stopped answering that dialog. Kept out of runConfig, so
+// it doesn't change the launch fingerprint.
+const launchTokens = new Map<string, string>()
+/** The token the session's current process was launched with, if this hub launched it. */
+export const launchToken = (name: string) => launchTokens.get(name)
+
+function writeRunFiles(s: Session, token: string) {
   fs.mkdirSync(config.uploadsDir, { recursive: true, mode: 0o700 })
   const c = runConfig(s)
+  ;(c.mcp.mcpServers.neural.env as Record<string, string>).NEURAL_LAUNCH = token
   if (c.own) fs.writeFileSync(c.ownFile, c.own + '\n', { mode: 0o600 })
   else fs.rmSync(c.ownFile, { force: true })
   fs.writeFileSync(c.mcpFile, JSON.stringify(c.mcp, null, 2), { mode: 0o600 })
@@ -237,7 +246,9 @@ function ownStatusLine(cwd: string): string | null {
 }
 
 export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
-  const { mcpFile, settingsFile } = writeRunFiles(s)
+  const token = crypto.randomUUID()
+  launchTokens.set(s.name, token)
+  const { mcpFile, settingsFile } = writeRunFiles(s, token)
   const argv = [resolveClaude(), '--name', s.name, '--mcp-config', mcpFile, '--settings', settingsFile, ...FLAGS, ...sessionFlags(s)]
   if (opts.resume && canResume(s)) argv.push('--resume', s.claude_session_id!)
   return argv

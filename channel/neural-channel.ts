@@ -14,6 +14,8 @@ const SERVER_URL = env('URL') ?? 'http://127.0.0.1:7777'
 const SECRET = env('SECRET') ?? ''
 const NAME = env('SESSION_NAME') ?? ''
 const ROLE = env('ROLE') ?? 'worker'
+// Which launch of the session this is: the hub refuses a channel of an earlier one.
+const LAUNCH = env('LAUNCH') ?? ''
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/neural')
 
 // stdout belongs to the MCP transport, so diagnostics go to stderr (visible with `claude --debug`).
@@ -173,7 +175,7 @@ let backoff = 500
 const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
 
 function connect() {
-  const url = `${SERVER_URL.replace(/^http/, 'ws')}/channel?name=${encodeURIComponent(NAME)}&secret=${encodeURIComponent(SECRET)}`
+  const url = `${SERVER_URL.replace(/^http/, 'ws')}/channel?name=${encodeURIComponent(NAME)}&secret=${encodeURIComponent(SECRET)}${LAUNCH ? `&launch=${encodeURIComponent(LAUNCH)}` : ''}`
   const sock = new WebSocket(url)
   ws = sock
   sock.on('open', () => {

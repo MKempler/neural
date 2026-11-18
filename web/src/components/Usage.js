@@ -43,7 +43,7 @@ function Meter({ label, w, by }) {
       <span style=${`width: ${w.used}%`}></span>
     </div>
     ${by?.length > 1 && html`<div class="meter-by" title="Share of this window's use, estimated from each session's cost">
-      ${by.filter(x => x.share > 0).slice(0, 5).map(x => `${x.name} ${x.share}%`).join(' · ')}</div>`}
+      est. ${by.filter(x => x.share > 0).slice(0, 5).map(x => `${x.name} ${x.share}%`).join(' · ')}</div>`}
   </div>`
 }
 

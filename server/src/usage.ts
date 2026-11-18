@@ -27,6 +27,20 @@ function window(w: any): Window | null {
 }
 const sameWindow = (a: Window | null | undefined, b: Window | null) => (a?.used ?? null) === (b?.used ?? null) && (a?.resets_at ?? null) === (b?.resets_at ?? null)
 
+/** Readings of one window whose reset times are this close are the same window (they can differ by seconds). */
+const SAME_WINDOW = 15 * 60
+
+/** The account's figure after a new reading. Every session reports the limits from its own last API response,
+ *  so a session that has been idle reports an older, lower figure; taken as is, the meter jumped back and forth
+ *  between sessions. Within a window use only grows, so keep the highest; a reading of an earlier window is
+ *  stale and ignored; a later reset time means the window really did reset. */
+export function merge(prev: Window | null | undefined, next: Window | null): Window | null {
+  if (!next) return prev ?? null
+  if (!prev || next.resets_at > prev.resets_at + SAME_WINDOW) return next
+  if (next.resets_at < prev.resets_at - SAME_WINDOW) return prev
+  return next.used > prev.used ? { used: next.used, resets_at: prev.resets_at } : prev
+}
+
 export const account = () => store.get<Account>(ACCOUNT)
 export const context = (name: string) => store.get<Context>(name)
 export const forget = (name: string) => store.remove(name)
@@ -57,7 +71,7 @@ export function record(name: string, payload: any): string {
   const five = window(payload?.rate_limits?.five_hour)
   const week = window(payload?.rate_limits?.seven_day)
   if (five || week) {
-    const next: Account = { five_hour: five ?? acc?.five_hour ?? null, seven_day: week ?? acc?.seven_day ?? null, at }
+    const next: Account = { five_hour: merge(acc?.five_hour, five), seven_day: merge(acc?.seven_day, week), at }
     if (!acc || !sameWindow(acc.five_hour, next.five_hour) || !sameWindow(acc.seven_day, next.seven_day)) {
       store.set(ACCOUNT, next)
       broadcast({ type: 'usage', account: next })

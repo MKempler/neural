@@ -1440,7 +1440,7 @@ test('a turn that says it stopped at the usage limit is treated as cut off by it
   const usage = await import('../server/src/usage.ts')
   const { handleHook, turnFailed } = await import('../server/src/router.ts')
   await idle('hw')
-  const resets = Math.floor(Date.now() / 1000) + 3600
+  const resets = Math.floor(Date.now() / 1000) + 12 * 3600 // later than the window the quota test left
   usage.record('hw', { rate_limits: { five_hour: { used_percentage: 100, resets_at: resets }, seven_day: { used_percentage: 50, resets_at: resets + 86400 } } })
   handleHook('hw', 'UserPromptSubmit', { prompt: 'go' })
   handleHook('hw', 'Stop', { last_assistant_message: 'My usage limit was reached partway through the fix pass. The fixes are committed.' })
@@ -1556,6 +1556,34 @@ test('requests from other origins and without the secret are refused', async () 
     ws.on('open', resolve)
     ws.on('error', reject)
   }))
+})
+
+test('the usage meter does not flap between sessions: an idle session\'s older, lower reading is ignored', async () => {
+  const usage = await import('../server/src/usage.ts')
+  // Later than any window the tests before used, so this one counts as the newest.
+  const resets = Math.floor(Date.now() / 1000) + 40 * 86400
+  const reading = (five: number, at = resets) => ({ rate_limits: { five_hour: { used_percentage: five, resets_at: at }, seven_day: { used_percentage: 50, resets_at: at + 86400 } } })
+  const sent = () => seen.filter(e => e.type === 'usage' && e.account).length
+  usage.record('main', reading(99)) // main is busy and near the limit
+  await new Promise(r => setTimeout(r, 200)) // its update reaches the app
+  const before = sent()
+  usage.record('hw', reading(84)) // hw has been idle: its figure is from its last API call
+  usage.record('hw', reading(84, resets + 7)) // the same window, reported a few seconds apart
+  assert.equal(usage.account()?.five_hour?.used, 99)
+  assert.equal(usage.account()?.five_hour?.resets_at, resets)
+  assert.match(usage.record('hw', {}), /5-hour 99%/) // hw's own status line shows the account figure too
+  usage.record('hw', reading(97, resets - 5 * 3600)) // a reading of the window before: stale
+  assert.equal(usage.account()?.five_hour?.used, 99)
+  await new Promise(r => setTimeout(r, 200))
+  assert.equal(sent(), before, 'no usage update goes out for a stale reading')
+  assert.equal((await get('/api/state')).usage.five_hour.used, 99)
+  usage.record('main', reading(100))
+  assert.equal(usage.account()?.five_hour?.used, 100)
+  // The real reset: a later reset time starts over, lower.
+  usage.record('hw', reading(2, resets + 5 * 3600))
+  assert.deepEqual(usage.account()?.five_hour, { used: 2, resets_at: resets + 5 * 3600 })
+  assert.equal(usage.merge(null, { used: 5, resets_at: 1 })?.used, 5)
+  assert.equal(usage.merge({ used: 5, resets_at: 1 }, null)?.used, 5)
 })
 
 test('keysForOption picks the right keys for a select dialog', async () => {

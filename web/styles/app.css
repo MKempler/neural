@@ -612,6 +612,12 @@ button.result:hover { background: var(--surface-2); }
 .lightbox img { max-width: 100%; max-height: calc(100dvh - 110px); object-fit: contain; border-radius: var(--r); }
 .lightbox-bar { display: flex; align-items: center; gap: 8px; max-width: 100%; font: 12px/1.4 var(--mono); color: #c9ccd1; }
 .lightbox-bar .truncate { min-width: 0; margin-right: 6px; }
+/* Narrow screens: the name, size and "2 of 3" get a row of their own instead of being squeezed out by the buttons. */
+@media (max-width: 520px) {
+  .lightbox-bar { flex-wrap: wrap; justify-content: center; }
+  .lightbox-bar .truncate { flex-basis: 100%; margin-right: 0; text-align: center; }
+  .lightbox img { max-height: calc(100dvh - 150px); }
+}
 
 /* Phone: whatever the screen shows beyond the app (the home-indicator strip) matches the bars, and the
    tab bar steps aside while the keyboard is up, as native apps do. */

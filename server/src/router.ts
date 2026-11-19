@@ -23,7 +23,13 @@ const bodyFor = (m: Message) => original.get(m.id) ?? m.body
 // ---------------------------------------------------------------------------------------------
 // Sending: every message is stored first, then delivered.
 
-export function sendMessage(m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null; attachments?: number[]; client_key?: string | null }): Message {
+/** A message that needs no answer: it waits for the recipient's next real message instead of starting a turn. */
+const ACK = /^(noted|got it|ok(ay)?|thanks?( you)?|understood|ack(nowledged)?|will do|on it|roger|sounds good)[.! ]*$/i
+const isQuiet = (m: Message) => {
+  try { return Boolean(m.meta && JSON.parse(m.meta).quiet) } catch { return false }
+}
+
+export function sendMessage(m: { from: string; to: string; body: string; source: string; in_reply_to?: number | null; attachments?: number[]; client_key?: string | null; quiet?: boolean }): Message {
   const body = m.body.trim()
   const files = [...new Set((m.attachments ?? []).map(Number))]
   if (!body && !files.length) throw new Error('empty message')
@@ -34,9 +40,12 @@ export function sendMessage(m: { from: string; to: string; body: string; source:
   // Secrets are kept out of the archive. A session the message is for still gets the original, held in memory
   // until it has been delivered (so after a hub restart it gets the redacted text).
   const safe = redact(body)
+  // Only Neural's routine notices, a session's pure ack, or a report marked fyi wait; never the user's messages.
+  const quiet = m.to !== 'user' && m.from !== 'user' && !files.length
+    && (m.quiet || (m.source === 'send_message' && body.length < 80 && ACK.test(body)))
   const stored = messages.insert({
     from: m.from, to: m.to, body: safe.text, source: m.source, in_reply_to: m.in_reply_to, client_key: m.client_key,
-    meta: safe.found.length ? { redacted: safe.found } : undefined,
+    meta: safe.found.length || quiet ? { ...(safe.found.length ? { redacted: safe.found } : {}), ...(quiet ? { quiet: true } : {}) } : undefined,
   })
   if (safe.found.length && m.to !== 'user') original.set(stored.id, body)
   if (files.length) claimFor(stored.id, files)
@@ -58,11 +67,14 @@ export function flush(target: string) {
   const s = sessions.get(target)
   if (!s || !channels.has(target)) return
   const hold = usage.held(target)
-  for (const row of outbox.pending(target)) {
-    const msg = messages.get(row.message_id)
-    if (!msg) continue
-    // Near a usage limit a low-priority session gets only the user's messages; the rest wait for the reset.
-    if (hold && msg.from_name !== 'user') continue
+  const rows = outbox.pending(target).map(row => ({ row, msg: messages.get(row.message_id) }))
+  // Near a usage limit a low-priority session gets only the user's messages; the rest wait for the reset.
+  const due = rows.filter(r => r.msg && !(hold && r.msg.from_name !== 'user'))
+  // Quiet messages (acks, routine notices, fyi reports) don't start a turn of their own: they go along with
+  // the next message that does.
+  const wake = due.some(r => !isQuiet(r.msg!))
+  for (const { row, msg } of due) {
+    if (!msg || !wake) continue
     if (row.attempts >= MAX_ATTEMPTS) {
       original.delete(row.message_id)
       outbox.markFailed(row.message_id, 'gave up after repeated delivery attempts')
@@ -696,7 +708,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
     case 'send_message':
       if (a.to === caller) throw new Error('a session cannot message itself')
       if (a.to !== 'user' && !sessions.get(String(a.to))) throw new Error(`no session "${a.to}"`)
-      return say(caller, String(a.to), a.text, a.to === 'user' ? 'reply' : 'send_message', a.in_reply_to, await importAll(a.files))
+      return say(caller, String(a.to), a.text, a.to === 'user' ? 'reply' : 'send_message', a.in_reply_to, await importAll(a.files), a.fyi === true)
     case 'list_sessions': {
       const all = usage.shares()
       return sessions.all().map(s => ({
@@ -869,9 +881,9 @@ async function importAll(paths: unknown): Promise<number[]> {
   return ids
 }
 
-function say(from: string, to: string, text: unknown, source: string, inReplyTo: unknown, attachments: number[] = []) {
+function say(from: string, to: string, text: unknown, source: string, inReplyTo: unknown, attachments: number[] = [], quiet = false) {
   const replyTo = Number(inReplyTo) || null
-  const m = sendMessage({ from, to, body: String(text ?? ''), source, in_reply_to: replyTo, attachments })
+  const m = sendMessage({ from, to, body: String(text ?? ''), source, in_reply_to: replyTo, attachments, quiet })
   const turn = turns.get(from)
   if (turn && to === 'user') turn.replied = true
   // Answering a message is the strongest evidence it was delivered.

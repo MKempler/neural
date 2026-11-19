@@ -1145,6 +1145,28 @@ test('the quota guard: alerts at 80% and 95% with who used it, and low-priority 
   await idle('main')
 })
 
+test('a pure ack or an fyi report waits for the next real message, then all go out in order', async () => {
+  await idle('main')
+  const send = (args: unknown) => say('main', `tool send_message ${JSON.stringify(args)}`)
+  const sent = (body: string) => messageWhere(body, m => m.from_name === 'main' && m.to_name === 'hw' && m.body === body)
+  const state = async (id: number) => (await get('/api/messages?session=hw')).find((m: any) => m.id === id).delivery
+  await send({ to: 'hw', text: 'Got it.' })
+  const ack = await sent('Got it.')
+  await idle('main')
+  await send({ to: 'hw', text: 'echo: build is green', fyi: true })
+  const fyi = await sent('echo: build is green')
+  await idle('main')
+  assert.equal(await state(ack.id), 'pending')
+  assert.equal(await state(fyi.id), 'pending')
+  await send({ to: 'hw', text: 'echo: real work' })
+  const real = await sent('echo: real work')
+  await until('all three delivered', async () => (await state(real.id)) !== 'pending')
+  assert.notEqual(await state(ack.id), 'pending')
+  assert.notEqual(await state(fyi.id), 'pending')
+  await idle('main')
+  await idle('hw')
+})
+
 test('a session can be started on a model and effort, kept across restarts, and switched later', async () => {
   await idle('main')
   const tool = async (name: string, args: unknown) => {

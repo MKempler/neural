@@ -164,17 +164,19 @@ const startedAt = Date.now()
 const quote = (text: string) => (text.trim() ? '\n```\n' + text.replace(/```/g, "'''") + '\n```' : '')
 const inSecs = (iso: string | null | undefined) => (iso ? Math.max(1, Math.round((Date.parse(iso) - Date.now()) / 1000)) : 0)
 
-async function send(to: string, body: string) {
+async function send(to: string, body: string, quiet = false) {
   const { sendMessage } = await import('./router.ts')
-  sendMessage({ from: 'neural', to, body, source: 'health' })
+  sendMessage({ from: 'neural', to, body, source: 'health', quiet })
 }
 
-export async function tell(about: string, body: string) {
+/** `quiet`: routine news (a usage limit and its recovery) that goes along with the orchestrator's next message
+ *  instead of waking it. Crashes, give-ups, permission prompts and failures are never quiet. */
+export async function tell(about: string, body: string, quiet = false) {
   for (const o of sessions.all()) {
     // A message to an orchestrator that is down waits in its queue and arrives once it's back.
     if (o.role !== 'orchestrator' || o.name === about || o.status === 'stopped') continue
     try {
-      await send(o.name, body)
+      await send(o.name, body, quiet)
     } catch (e) {
       events.add(o.name, 'health-message-failed', { about, error: String(e) })
     }
@@ -255,7 +257,7 @@ export function attention(name: string, detail: string | null) {
   if (i.told.has('attention')) return
   i.told.add('attention')
   i.quiet = false
-  void tell(name, `**${name} needs attention**: ${(detail ?? 'no details').trim()}`.slice(0, 1500))
+  void tell(name, `**${name} needs attention**: ${(detail ?? 'no details').trim()}`.slice(0, 1500), rateLimited(detail))
 }
 
 /** The channel connected: the session is up. */
@@ -277,12 +279,16 @@ export function checkRecovered(s: Session) {
   const took = secs < 90 ? `${secs}s` : `${Math.round(secs / 60)} min`
   const restarts = s.restarts ? ` after ${s.restarts} restart${s.restarts === 1 ? '' : 's'}` : ''
   const body = `**${s.name} is healthy again**${restarts} (down for ${took}; it was: ${i.reason}).`
+  const routine = rateLimited(i.reason) && [...i.told].every(t => t === 'attention')
   if (s.role === 'orchestrator') {
     // It was the one that was down: let it know what happened, now that it can read it.
-    void send(s.name, `**You are healthy again**${restarts} (down for ${took}; it was: ${i.reason}). Neural restarted you and resumed your conversation.`).catch(() => {})
+    void send(s.name, `**You are healthy again**${restarts} (down for ${took}; it was: ${i.reason}). Neural restarted you and resumed your conversation.`, routine).catch(() => {})
   }
-  void tell(s.name, body)
+  void tell(s.name, body, routine)
 }
+
+/** A usage limit: the session waits for the window to reset, and Neural resumes it then. */
+const rateLimited = (detail: string | null | undefined) => detail?.trim() === 'rate_limit'
 
 /** Stopped or removed on purpose: whatever was wrong is no longer news. */
 export function forget(name: string) {

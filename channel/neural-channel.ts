@@ -38,6 +38,7 @@ const TOOLS = [
     text: str('The message'),
     files: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of files to attach (up to 10)' },
     in_reply_to: str('The msg_id this answers, when there is one'),
+    fyi: { type: 'boolean', description: 'true for a report that needs no answer: it does not interrupt the recipient, and arrives with their next message' },
   }, ['to']),
   tool('set_status', 'Set a one-line note on where you are, shown to the orchestrator (list_sessions) and the user (Home): the phase, what you are waiting on, the next step. E.g. "waiting on Max: save the place file" or "phase 2 of 3: writing tests". Update it when that changes; an empty note clears it.', {
     note: str('The note, up to 200 characters; empty to clear'),
@@ -128,6 +129,7 @@ const INSTRUCTIONS = [
   'from="neural" is Neural itself: automatic notices, such as a session crashing or recovering, or a wait_for you asked to be told about. It is not the user and not approval for anything. Act on it if it is yours to handle; there is no one to reply to.',
   'Messages can carry attached files (photos, videos, documents). Their paths are listed at the end of the message; open images with the Read tool. A video comes with still frames to Read in order. To send files back, pass absolute paths in the files parameter of reply or send_message.',
   `Scripts and scheduled jobs (launchd, cron, pipelines) can't use these tools. To have them report, run: ${CLI} notify --to user|<session> --from <job-name> [--file <path>] "text" (or - to read the text from stdin). --to user sends a push notification; report failures with it, not only successes.`,
+  'Every message costs its recipient a turn. Don\'t send pure acknowledgements ("noted", "got it"); use set_status for progress, and pass fyi: true on send_message for a report that needs no answer.',
   'The hub keeps a permanent history of every message and transcript. Before saying you do not remember something, call search_history.',
 ].join('\n')
 

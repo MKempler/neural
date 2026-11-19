@@ -139,6 +139,8 @@ export function ActivityLine({ s }) {
 // ---------------------------------------------------------------------------------------------
 // Attachments in a message
 
+const isAudio = a => a.mime?.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac)$/i.test(a.name ?? '')
+
 export function Attachments({ list }) {
   if (!list?.length) return null
   const images = list.filter(a => a.kind === 'image')
@@ -154,11 +156,12 @@ export function Attachments({ list }) {
         style=${a.width && a.height ? { aspectRatio: `${a.width} / ${a.height}` } : null}></video>
       <div class="file-meta"><span class="truncate">${a.name}</span><span>${a.duration ? fmtDuration(a.duration) : ''} · ${fmtBytes(a.size)}</span></div>
     </div>`)}
-    ${list.filter(a => a.kind === 'file').map(a => html`<div class="file-chip" key=${a.id}>
+    ${list.filter(a => a.kind === 'file').map(a => html`<div class=${`file-chip${isAudio(a) ? ' audio' : ''}`} key=${a.id}>
       <${Icon} name="file" />
       <a class="truncate" href=${a.url} target="_blank" rel="noopener">${a.name}</a>
       <span class="size">${fmtBytes(a.size)}</span>
       <a class="dl" href=${`${a.url}/download`} aria-label=${`Download ${a.name}`}><${Icon} name="download" /></a>
+      ${isAudio(a) && html`<audio controls preload="none" src=${a.url}></audio>`}
     </div>`)}
   </div>`
 }

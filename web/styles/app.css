@@ -598,6 +598,7 @@ button.result:hover { background: var(--surface-2); }
 .file-chip .size { font: 11px/1 var(--mono); color: var(--text-3); }
 .file-chip .dl { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r); color: var(--text-2); }
 .file-chip .dl:hover { background: var(--surface-2); color: var(--text); }
+.file-chip audio { grid-column: 1 / -1; display: block; width: 100%; height: 40px; }
 
 .dropzone { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .drop-hint {

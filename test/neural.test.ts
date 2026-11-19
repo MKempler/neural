@@ -497,6 +497,13 @@ test('a photo uploaded with a message reaches the session as a file it can open'
   const part = await fetch(base + up.body.url, { headers: { range: 'bytes=0-3' } })
   assert.equal(part.status, 206)
   assert.equal((await part.arrayBuffer()).byteLength, 4)
+  // Audio sent without a type is served as audio, with ranges, so iPhone Safari plays it inline.
+  const voice = await upload('memo.m4a', Buffer.alloc(64, 1), 'application/octet-stream')
+  assert.equal(voice.body.mime, 'audio/mp4')
+  const clip = await fetch(base + voice.body.url, { headers: { range: 'bytes=0-1' } })
+  assert.equal(clip.status, 206)
+  assert.equal(clip.headers.get('content-type'), 'audio/mp4')
+  await clip.arrayBuffer()
   // An upload belongs to one message only.
   assert.equal((await api('POST', '/api/messages', { to: 'main', body: 'again', attachments: [up.body.id] })).status, 400)
   // A message can be just a photo.

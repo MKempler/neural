@@ -43,6 +43,8 @@ const MIME_BY_EXT: Record<string, string> = {
   '.mov': 'video/quicktime', '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
   '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/markdown', '.json': 'application/json', '.csv': 'text/csv',
   '.zip': 'application/zip', '.svg': 'image/svg+xml',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg', '.flac': 'audio/flac',
 }
 const CLAUDE_READS = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const MAX_EDGE = 2000
@@ -281,10 +283,11 @@ export function describeForClaude(list: Attachment[]): string {
   return lines.join('\n')
 }
 
-/** Serve a stored file, with byte ranges so phones can seek in videos. */
+/** Serve a stored file, with byte ranges so phones can seek in videos and audio. */
 export function serveFile(req: http.IncomingMessage, res: http.ServerResponse, a: Attachment, variant: string | undefined) {
   let file = a.path
-  let mime = a.mime
+  // Files stored before their type was known still get a type the browser can play.
+  let mime = a.mime === 'application/octet-stream' ? MIME_BY_EXT[path.extname(a.name).toLowerCase()] ?? a.mime : a.mime
   if (variant === 'view' && a.view_path) [file, mime] = [a.view_path, 'image/jpeg']
   else if (variant === 'poster' && a.poster_path) [file, mime] = [a.poster_path, 'image/jpeg']
   else if (variant && variant !== 'download') throw Object.assign(new Error('not found'), { status: 404 })

@@ -29,7 +29,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean; handoffAt?: number; handoffWorkerAt?: number } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean; handoffAt?: number; handoffWorkerAt?: number; handoffTokens?: number; handoffWorkerTokens?: number } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -85,6 +85,10 @@ export const config = {
   handoffAt: Number(env('HANDOFF_AT') ?? file.handoffAt ?? 60),
   // The same for workers that have handoffs turned on: lower, since every turn re-reads the whole context.
   handoffWorkerAt: Number(env('HANDOFF_WORKER_AT') ?? file.handoffWorkerAt ?? 30),
+  // A token ceiling alongside the percent: whichever comes first. On a 1M-token context 60% is 600K tokens, all
+  // re-read on every turn, so the ceiling is what keeps a big-context session cheap. 0 turns it off.
+  handoffTokens: Number(env('HANDOFF_TOKENS') ?? file.handoffTokens ?? 150_000),
+  handoffWorkerTokens: Number(env('HANDOFF_WORKER_TOKENS') ?? file.handoffWorkerTokens ?? 90_000),
   // How long a session must have been quiet before that restart, so a conversation isn't cut off.
   handoffIdleMs: Number(env('HANDOFF_IDLE_MS') ?? 30_000),
   // How long a session may sit at startup prompts Neural doesn't recognise before it is shown as needing attention.

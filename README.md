@@ -152,7 +152,7 @@ which can run commands on your computer.
 - **Updates reach running sessions.** A session started before Neural's hooks, status line or channel server
   changed is restarted once it has been idle for 3 minutes, with nothing queued, no question open, nobody in
   its terminal and no background shell or task running. Its conversation is resumed.
-- **A fresh context instead of a lossy summary.** When `main`'s context passes 60%, Neural asks it to update
+- **A fresh context instead of a lossy summary.** When `main`'s context passes 60% or 150K tokens, Neural asks it to update
   `STATE.md`, its operations ledger, then restarts it fresh (not resumed) once it has and is idle, so it
   starts from its instructions and that file instead of Claude Code's compacted summary. Workers can opt in,
   and "Fresh context" in a session's menu does it by hand.

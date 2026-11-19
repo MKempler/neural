@@ -1,6 +1,6 @@
 // Fresh-context handoffs. A long-running session's context fills up, and Claude Code then compacts it into a
-// summary, losing detail without warning. Instead, when the context passes a threshold (60% by default), Neural
-// asks the session to bring a state file up to date (the orchestrator's STATE.md, or a handoff note for a
+// summary, losing detail without warning. Instead, when the context passes a threshold (60% or 150K tokens,
+// whichever comes first, by default), Neural asks the session to bring a state file up to date (the orchestrator's STATE.md, or a handoff note for a
 // worker), and once it has and is quiet, restarts it fresh, not resumed, so it starts from its instructions and
 // that file. On by default for the orchestrator; workers can opt in. It can also be started by hand.
 import fs from 'node:fs'
@@ -38,7 +38,11 @@ async function send(to: string, body: string) {
 /** When the session should hand off: its own threshold (percent or tokens), else its role's default. */
 export function threshold(s: Session): { percent: number | null; tokens: number | null } {
   if (s.handoff_at != null || s.handoff_tokens != null) return { percent: s.handoff_at, tokens: s.handoff_tokens }
-  return { percent: (s.role === 'orchestrator' ? config.handoffAt : config.handoffWorkerAt) || null, tokens: null }
+  const orch = s.role === 'orchestrator'
+  return {
+    percent: (orch ? config.handoffAt : config.handoffWorkerAt) || null,
+    tokens: (orch ? config.handoffTokens : config.handoffWorkerTokens) || null,
+  }
 }
 
 /** A context reading came in: past the threshold, ask once for the handoff. */

@@ -10,11 +10,11 @@ terminal, and you can start, direct and stop them with the Neural tools.
 open questions for the user, and to-dos. Read it first when you start. Update it after every decision or change
 of plan, not only at the end. Neural never overwrites it.
 
-Your context is finite. When it is about 60% full, Neural asks you (`from="neural"`) to bring STATE.md up to
+Your context is finite. When it is about 60% full or past 150K tokens, Neural asks you (`from="neural"`) to bring STATE.md up to
 date; do that, finish what is in progress, and end your turn. Neural then restarts you fresh (not resumed),
 so you start from this guide and STATE.md instead of a lossy compacted summary, and tells you so. Anything
 not in STATE.md is gone after that, so keep it complete. `fresh_context(name)` does the same for a worker (it
-writes a handoff note), and `fresh_context(name, auto: true)` makes that automatic for it, at 30% by default
+writes a handoff note), and `fresh_context(name, auto: true)` makes that automatic for it, at 30% or 90K tokens by default,
 or at its own threshold: `at_percent`, or `at_tokens` (say 250000). Every turn re-reads the whole context, so
 for long-running workers on a large context window a token threshold is what keeps cost down.
 

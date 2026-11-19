@@ -294,7 +294,8 @@ export async function startSession(
   for (const row of outbox.pushed(name)) outbox.requeue(row.message_id, 'session restarted')
 
   // The channel server negotiates the earlier MCP handshake; newer revisions do not register channels.
-  const env = { MCP_PROTOCOL_NEGOTIATION: 'legacy' }
+  const env: Record<string, string> = { MCP_PROTOCOL_NEGOTIATION: 'legacy' }
+  if (config.autoCompactWindow > 0) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(config.autoCompactWindow)
   await mux.spawn(name, cwd, launchArgv(s, { resume: opts.resume }), env)
   sessions.update(name, { launch_rev: launchRev(s) })
   spawnedAt.set(name, Date.now())

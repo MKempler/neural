@@ -786,6 +786,9 @@ button.result:hover { background: var(--surface-2); }
 
 /* Phone terminal */
 .term-live { touch-action: none; } /* swipes scroll tmux's history (Terminal.js), not the page */
+/* Pan view: the fixed-size terminal is wider than the pane, so it scrolls sideways (a sideways swipe). */
+.term-live.pan { overflow-x: auto; overflow-y: hidden; touch-action: pan-x; overscroll-behavior-x: contain; }
+.term-live.pan .xterm { width: max-content; }
 @media (max-width: 860px) {
   /* The keys sit in one row that scrolls sideways, clear of the home indicator, instead of wrapping into two. */
   .term-keys {

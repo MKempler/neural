@@ -9,6 +9,9 @@ const KEYS = [
   ['Enter', 'Enter', '\r'], ['y', 'y', 'y'], ['n', 'n', 'n'], ['1', '1', '1'], ['2', '2', '2'], ['3', '3', '3'], ['Ctrl+C', 'C-c', '\x03'],
 ]
 
+const TERM_COLS = 200 // TERM_SIZE in server/src/mux/mux.ts
+const TERM_ROWS = 50
+
 const scripts = new Map()
 function loadScript(src) {
   if (!scripts.has(src)) {
@@ -20,7 +23,24 @@ function loadScript(src) {
   return scripts.get(src)
 }
 
+// The terminal is a fixed 200x50 (the server never resizes it to the viewer). "fit" scales the text so all of it
+// shows; "pan" fits the height and scrolls sideways, which keeps the text readable on a phone.
+const narrow = () => matchMedia('(max-width: 860px)').matches
+function savedView() {
+  try {
+    const v = localStorage.getItem('neural.termView')
+    if (v === 'fit' || v === 'pan') return v
+  } catch {}
+  return narrow() ? 'pan' : 'fit'
+}
+
 export function Terminal({ name }) {
+  const [view, setView] = useState(savedView)
+  const toggleView = () => {
+    const v = view === 'fit' ? 'pan' : 'fit'
+    setView(v)
+    try { localStorage.setItem('neural.termView', v) } catch {}
+  }
   const [history, setHistory] = useState(false)
   const [failed, setFailed] = useState(false)
   const live = liveTerminal.value && !history && !failed
@@ -36,22 +56,28 @@ export function Terminal({ name }) {
 
   return html`<div class="terminal">
     ${live
-      ? html`<${Live} name=${name} conn=${conn} onFail=${() => setFailed(true)} />`
+      ? html`<${Live} name=${name} view=${view} conn=${conn} onFail=${() => setFailed(true)} />`
       : html`<${Snapshot} name=${name} history=${history} />`}
     <div class="term-keys">
       ${KEYS.map(k => html`<button type="button" onClick=${() => sendKey(k)}>${k[0]}</button>`)}
       ${!live && html`<${TypeBox} name=${name} />`}
       <span class="sep"></span>
+      ${live && html`<button type="button" class=${view === 'fit' ? 'on' : ''} title="Fit the whole terminal, or fit its height and pan sideways"
+        onClick=${toggleView}>Fit</button>`}
       ${liveTerminal.value && html`<button type="button" class=${history ? 'on' : ''} onClick=${() => setHistory(!history)}>
         ${history ? 'Back to live' : 'History'}</button>`}
     </div>
   </div>`
 }
 
-function Live({ name, conn, onFail }) {
+function Live({ name, view, conn, onFail }) {
   const host = useRef(null)
+  const layout = useRef(null)
+  const viewRef = useRef(view)
+  viewRef.current = view
+  useEffect(() => layout.current?.(), [view])
   useEffect(() => {
-    let term, fit, ws, observer
+    let term, ws, observer
     let disposed = false
     const el = host.current
     const listeners = []
@@ -62,7 +88,6 @@ function Live({ name, conn, onFail }) {
     ;(async () => {
       try {
         await loadScript('/vendor/@xterm/xterm/lib/xterm.js')
-        await loadScript('/vendor/@xterm/addon-fit/lib/addon-fit.js')
       } catch {
         onFail()
         return
@@ -74,26 +99,46 @@ function Live({ name, conn, onFail }) {
       await document.fonts?.load(`12px ${fontFamily}`).catch(() => {})
       if (disposed) return
       term = new window.Terminal({
+        cols: TERM_COLS,
+        rows: TERM_ROWS,
         fontFamily,
-        fontSize: matchMedia('(max-width: 860px)').matches ? 11 : 12.5,
+        fontSize: narrow() ? 11 : 12.5,
         lineHeight: 1.15,
         cursorBlink: true,
         scrollback: 0, // history lives in tmux; the History button shows it
         theme: { background: css.getPropertyValue('--term-bg').trim(), foreground: css.getPropertyValue('--term-text').trim(), cursor: css.getPropertyValue('--accent').trim() },
       })
-      fit = new window.FitAddon.FitAddon()
-      term.loadAddon(fit)
       term.open(el)
-      fit.fit()
+      // Size the text to the pane: the cell size follows the font size, so scale it by how far off it is,
+      // a couple of times since the cell is rounded to whole pixels.
+      const screen = el.querySelector('.xterm-screen')
+      let tries = 0
+      const fitFont = () => {
+        if (disposed || !screen.offsetWidth || !screen.offsetHeight) return
+        const pad = getComputedStyle(el)
+        const w = el.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight)
+        const h = el.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom)
+        const byHeight = h / screen.offsetHeight
+        const scale = viewRef.current === 'fit' ? Math.min(w / screen.offsetWidth, byHeight) : byHeight
+        const size = Math.min(16, Math.max(3, Math.floor(term.options.fontSize * scale * 4) / 4))
+        if (Math.abs(size - term.options.fontSize) < 0.2 || ++tries > 4) return
+        term.options.fontSize = size
+        requestAnimationFrame(fitFont)
+      }
+      layout.current = () => {
+        tries = 0
+        el.classList.toggle('pan', viewRef.current === 'pan')
+        fitFont()
+      }
+      layout.current()
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.host}/term?name=${encodeURIComponent(name)}&cols=${term.cols}&rows=${term.rows}`)
+      ws = new WebSocket(`${proto}://${location.host}/term?name=${encodeURIComponent(name)}`)
       const send = msg => ws.readyState === 1 && ws.send(JSON.stringify(msg))
       ws.onmessage = e => term.write(e.data)
       ws.onclose = () => !disposed && term.write('\r\n\x1b[2m[terminal disconnected]\x1b[0m\r\n')
       term.onData(data => send({ type: 'input', data }))
-      term.onResize(({ cols, rows }) => send({ type: 'resize', cols, rows }))
       conn.current = { send: data => send({ type: 'input', data }) }
-      observer = new ResizeObserver(() => fit.fit())
+      observer = new ResizeObserver(() => layout.current?.())
       observer.observe(el)
 
       // Scrolling: the history lives in tmux, not in xterm (scrollback 0), so a swipe or the mouse wheel asks the
@@ -112,10 +157,24 @@ function Live({ name, conn, onFail }) {
           if (n) send({ type: 'scroll', lines: n })
         })
       }
+      // In pan view a sideways swipe pans the page (native scrolling); only an up-and-down one scrolls tmux.
       let lastY = null
-      listen('touchstart', e => (lastY = e.touches.length === 1 ? e.touches[0].clientY : null), { passive: true, capture: true })
+      let start = null
+      let axis = null
+      listen('touchstart', e => {
+        const t = e.touches.length === 1 ? e.touches[0] : null
+        lastY = t ? t.clientY : null
+        start = t && { x: t.clientX, y: t.clientY }
+        axis = null
+      }, { passive: true, capture: true })
       listen('touchmove', e => {
         if (lastY === null || e.touches.length !== 1) return
+        if (!axis && viewRef.current === 'pan') {
+          const dx = Math.abs(e.touches[0].clientX - start.x), dy = Math.abs(e.touches[0].clientY - start.y)
+          if (Math.max(dx, dy) < 6) return
+          axis = dx > dy ? 'x' : 'y'
+        }
+        if (axis === 'x') return
         e.preventDefault()
         const y = e.touches[0].clientY
         scroll((y - lastY) / lineHeight()) // finger moving down shows earlier lines

@@ -23,3 +23,7 @@ export interface Mux {
   /** Names of terminals this mux currently holds. */
   list(): Promise<string[]>
 }
+
+/** The size every session's terminal has, whoever is watching: a phone viewing it must not reflow Claude Code's
+ *  screen to phone width. Browsers scale or pan this fixed size instead. */
+export const TERM_SIZE = { cols: 200, rows: 50 }

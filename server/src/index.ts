@@ -327,7 +327,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
 // requests outside this origin. Only these packages, and only these file types, are reachable.
 const VENDOR_PACKAGES = new Set([
   'preact', 'htm', '@preact/signals', '@preact/signals-core', 'marked', 'dompurify',
-  '@fontsource/ibm-plex-sans', '@fontsource/ibm-plex-mono', '@xterm/xterm', '@xterm/addon-fit',
+  '@fontsource/ibm-plex-sans', '@fontsource/ibm-plex-mono', '@xterm/xterm',
 ])
 const VENDOR_TYPES = new Set(['.js', '.mjs', '.css', '.woff2'])
 const NODE_MODULES = path.join(ROOT, 'node_modules')
@@ -419,8 +419,7 @@ server.on('upgrade', (req, socket, head) => {
       checkBrowser(req)
       const name = url.searchParams.get('name') ?? ''
       if (!sessions.get(name)) throw new HttpError(404, 'unknown session')
-      wss.handleUpgrade(req, socket, head, ws =>
-        terminal.attach(ws, name, Number(url.searchParams.get('cols')), Number(url.searchParams.get('rows'))))
+      wss.handleUpgrade(req, socket, head, ws => terminal.attach(ws, name))
     } else if (url.pathname === '/ui') {
       checkBrowser(req)
       wss.handleUpgrade(req, socket, head, onUi)

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { Mux } from './mux.ts'
+import { TERM_SIZE, type Mux } from './mux.ts'
 
 // Runs on its own tmux server (`tmux -L <socket>`), so a personal tmux setup is never touched.
 // Attach from a terminal with: tmux -L neural attach -t <name>
@@ -29,7 +29,7 @@ export class Tmux implements Mux {
     const envArgs = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`])
     const command = argv.map(shellQuote).join(' ')
     await this.run([
-      'new-session', '-d', '-s', name, '-x', '200', '-y', '50', '-c', cwd, ...envArgs, command,
+      'new-session', '-d', '-s', name, '-x', String(TERM_SIZE.cols), '-y', String(TERM_SIZE.rows), '-c', cwd, ...envArgs, command,
       // Keep the pane after the process exits so its last output can still be read.
       ';', 'set-option', '-t', name, 'remain-on-exit', 'on',
       ';', 'set-option', '-t', name, 'history-limit', '20000',

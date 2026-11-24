@@ -1783,3 +1783,19 @@ test('the file viewer shows files under known folders and nothing else', async (
   assert.equal(raw.status, 415, 'only images are served raw')
   fs.rmSync(outside, { recursive: true, force: true })
 })
+
+test('orchestrators hear when a window that reached an alert level resets, once', async () => {
+  const usage = await import('../server/src/usage.ts')
+  // Later than any window the tests before used.
+  const resets = Math.floor(Date.now() / 1000) + 50 * 86400
+  usage.record('main', { rate_limits: { five_hour: { used_percentage: 85, resets_at: resets }, seven_day: { used_percentage: 10, resets_at: resets + 86400 } } })
+  await messageWhere('the 80% alert', m => m.from_name === 'neural' && /5-hour usage is at 85%/.test(m.body))
+  usage.checkReset(resets * 1000 - 1000) // not yet
+  usage.limitFreed('hw', resets * 1000 + 30_000) // its limit reset around the same time
+  usage.checkReset(resets * 1000 + 60_000)
+  const notice = await messageWhere('the reset notice', m => m.from_name === 'neural' && /window reset/.test(m.body))
+  assert.match(notice.body, /^\*\*5-hour window reset\.\*\* Paused work can go ahead again\.\nStopped by the limit: hw\. Neural tells them to carry on, one at a time\.$/)
+  usage.checkReset(resets * 1000 + 120_000) // told once
+  await new Promise(r => setTimeout(r, 300))
+  assert.equal((await get('/api/messages?session=main')).filter((m: any) => /window reset/.test(m.body)).length, 1)
+})

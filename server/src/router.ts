@@ -339,6 +339,7 @@ export function limitReset(name: string, at: number) {
   if (!s || s.status !== 'limited') return
   setStatus(name, 'idle')
   events.add(name, 'limit-reset', { at: new Date(at).toISOString() })
+  usage.limitFreed(name, at)
   // A weekly limit's reset is days away; by then the user may want to choose what runs first.
   const weekly = /week/i.test(s.status_detail ?? '')
   if (config.autoContinue && !weekly && Date.now() - at < RESUME_MAX_AGE_MS) resumeDue.set(name, at)

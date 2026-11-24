@@ -232,6 +232,37 @@ function checkQuota(acc: Account) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The reset notice: once a window that reached an alert level resets, the orchestrators hear it, so paused work
+// can start again without anyone watching the clock. Checked on the reconcile timer.
+
+type Told = Record<string, { resets_at: number; level: number; announced?: boolean }>
+const STALE_RESET = 6 * 3600 // a reset found long after the fact (the hub was down) isn't news
+
+export function checkReset(now = Date.now()) {
+  const told = prefs.get<Told>('quotaTold') ?? {}
+  const reset = (Object.keys(SPAN) as (keyof typeof SPAN)[]).filter(k => told[k] && !told[k].announced && told[k].resets_at * 1000 <= now)
+  if (!reset.length) return
+  for (const k of reset) told[k].announced = true
+  prefs.set('quotaTold', told)
+  const fresh = reset.filter(k => now / 1000 - told[k].resets_at < STALE_RESET)
+  if (!fresh.length) return
+  // Freed around this reset (a limit's own reset time can differ from the account's by minutes), or still limited.
+  const since = Math.min(...fresh.map(k => told[k].resets_at)) * 1000 - 3600_000
+  const limited = sessions.all().filter(s => s.status === 'limited' || (freed.get(s.name) ?? 0) >= since).map(s => s.name)
+  freed.clear()
+  const title = fresh.map(k => LABEL[k]).join(' and ')
+  const lines = [`**${title[0].toUpperCase()}${title.slice(1)} window reset.** Paused work can go ahead again.`]
+  lines.push(limited.length
+    ? `Stopped by the limit: ${limited.join(', ')}.${config.autoContinue && fresh.includes('five_hour') ? ' Neural tells them to carry on, one at a time.' : ''}`
+    : 'No session was stopped by the limit.')
+  void import('./health.ts').then(h => h.tell('', lines.join('\n')))
+}
+
+/** Sessions freed by a limit's reset since the last notice (the reset times in their messages can lead the account's). */
+const freed = new Map<string, number>()
+export const limitFreed = (name: string, at: number) => { freed.set(name, at) }
+
 function quotaNotice(key: keyof typeof SPAN, w: Window, level: number) {
   const low = sessions.all().filter(s => s.priority === 'low' && s.status !== 'stopped').map(s => s.name)
   const resets = when(w.resets_at * 1000)

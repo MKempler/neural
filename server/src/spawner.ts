@@ -579,6 +579,7 @@ export async function reconcile() {
     await bringBack(s)
   }
   ;(await import('./router.ts')).resumeInterrupted()
+  ;(await import('./usage.ts')).checkReset() // a window that reached an alert level has reset: tell the orchestrators
 }
 
 const backoff = (restarts: number) => config.restartBackoffMs * 2 ** restarts // 15s, 30s, 60s, …

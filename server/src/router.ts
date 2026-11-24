@@ -622,6 +622,11 @@ export function decidePermission(id: number, behavior: 'allow' | 'deny') {
   if (sessions.get(p.session)?.status === 'blocked') setStatus(p.session, 'working')
 }
 
+/** The object without its null and undefined fields. */
+function compact<T extends Record<string, unknown>>(o: T) {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v != null)) as Partial<T>
+}
+
 function closePermission(id: number, verdict: string) {
   if (permissions.decide(id, verdict).changes) broadcast({ type: 'permission_closed', id, verdict })
 }
@@ -713,17 +718,25 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       if (a.to !== 'user' && !sessions.get(String(a.to))) throw new Error(`no session "${a.to}"`)
       return say(caller, String(a.to), a.text, a.to === 'user' ? 'reply' : 'send_message', a.in_reply_to, await importAll(a.files), a.fyi === true)
     case 'list_sessions': {
+      // Fields at their default (no note, normal priority, default launch, no usage, ...) are left out to keep the
+      // reply short; the orchestrator calls this often.
       const all = usage.shares()
-      return { usage: usage.outlook(), sessions: sessions.all().map(s => ({
-        name: s.name, role: s.role, status: s.status, cwd: s.cwd, connected: Boolean(s.channel_connected), you: s.name === caller,
-        background: background.get(s.name) ?? null, // idle, but with shells or tasks still running ("1 shell")
-        note: s.note ? { text: s.note, at: s.note_at } : null,
-        priority: s.priority, usage_share: usage.shareOf(s.name, all),
-        model: s.model, effort: s.effort, launch: { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' },
-        mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : [],
-        context_used: usage.context(s.name)?.used ?? null,
-        fresh_context: handoff.enabled(s) ? handoff.threshold(s) : false,
-      })) }
+      return { usage: usage.outlook(), sessions: sessions.all().map(s => {
+        const share = usage.shareOf(s.name, all)
+        return compact({
+          name: s.name, role: s.role, status: s.status, cwd: s.cwd,
+          connected: s.channel_connected ? undefined : false, you: s.name === caller || undefined,
+          background: background.get(s.name), // idle, but with shells or tasks still running ("1 shell")
+          note: s.note ? { text: s.note, at: s.note_at } : undefined,
+          priority: s.priority === 'normal' ? undefined : s.priority,
+          usage_share: share.five_hour || share.week ? share : undefined,
+          model: s.model, effort: s.effort,
+          launch: s.launch_model || s.launch_effort ? { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' } : undefined,
+          mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : undefined,
+          context_used: usage.context(s.name)?.used,
+          fresh_context: handoff.enabled(s) ? handoff.threshold(s) : undefined,
+        })
+      }) }
     }
     case 'set_status': {
       const note = clean(String(a.note ?? '').replace(/\s+/g, ' ').trim()).slice(0, 200)
@@ -779,7 +792,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       setPriority(String(a.name), a.priority)
       return { name: a.name, priority: a.priority }
     case 'search_history':
-      return searchAll(String(a.query ?? ''), { session: a.session, since: a.since, limit: a.limit })
+      return searchAll(String(a.query ?? ''), { session: a.session, since: a.since, limit: a.limit ?? 5 })
     case 'get_thread': {
       const name = a.session ?? caller
       return messages.thread(name, { before: a.before, limit: Math.min(a.limit ?? 30, 200) })

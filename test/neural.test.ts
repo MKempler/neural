@@ -1429,6 +1429,8 @@ test('a session sets a status note that main and Home can see', async () => {
   const asked = await say('main', 'tool list_sessions {}')
   const out = await messageWhere('listed', m => m.from_name === 'main' && m.in_reply_to === asked.id)
   assert.match(out.body, /"text": "waiting on Max: save the place file"/)
+  // Fields at their default are left out.
+  assert.doesNotMatch(out.body.split('"sessions"')[1], /"priority": "normal"|"fresh_context": false|"you": false|"connected": true|"mcp_servers": \[\]|null/)
   const cleared = await say('hw', 'tool set_status {"note":""}')
   await messageWhere('cleared', m => m.from_name === 'hw' && m.in_reply_to === cleared.id)
   assert.equal((await session('hw')).note, null)

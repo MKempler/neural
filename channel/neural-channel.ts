@@ -43,12 +43,12 @@ const TOOLS = [
   tool('set_status', 'Set a one-line note on where you are, shown to the orchestrator (list_sessions) and the user (Home): the phase, what you are waiting on, the next step. E.g. "waiting on Max: save the place file" or "phase 2 of 3: writing tests". Update it when that changes; an empty note clears it.', {
     note: str('The note, up to 200 characters; empty to clear'),
   }, ['note']),
-  tool('list_sessions', 'List the Claude sessions the hub knows, with role, status, working directory, status note, priority, and each one\'s estimated share of the current 5-hour and weekly usage (percent of what all sessions used). Also the account\'s usage: for the 5-hour and weekly windows, the percent used, when it resets, and pace: when it would hit 100% at the recent rate (null when not before the reset).', {}),
+  tool('list_sessions', 'List the Claude sessions the hub knows, with role, status, working directory, status note, priority, and each one\'s estimated share of the current 5-hour and weekly usage (percent of what all sessions used). Also the account\'s usage: for the 5-hour and weekly windows, the percent used, when it resets, and pace: when it would hit 100% at the recent rate (null when not before the reset). Fields at their default are left out: connected (true), priority (normal), launch (default model and effort), note, background work, usage share, MCP servers, context used and fresh_context when there are none.', {}),
   tool('search_history', 'Search the permanent history: every message through the hub and every archived Claude Code transcript. Matches by keyword and by meaning, so a plain-language question works. Use it whenever something from an earlier conversation is needed.', {
     query: str('Words or a question to search for'),
     session: str('Only this session'),
     since: str('Only on or after this ISO date, e.g. 2026-11-01'),
-    limit: int('Maximum results (default 20)'),
+    limit: int('Maximum results (default 5, up to 100)'),
   }, ['query']),
   tool('get_thread', 'Read recent messages to and from a session, oldest first. Defaults to this session.', {
     session: str('Session name'),

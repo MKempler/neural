@@ -1466,6 +1466,14 @@ test('near a full context the orchestrator writes STATE.md and is restarted fres
   usage.record('main', { context_window: { used_percentage: 64, context_window_size: 200_000 } })
   const asked = await messageWhere('the handoff request', m => m.from_name === 'neural' && m.to_name === 'main' && /Time for a fresh context/.test(m.body))
   assert.ok(asked.body.includes(path.join(tmp, 'STATE.md')))
+  // A state file past about 8K tokens gets a request to archive old history.
+  const { sizeNote } = await import('../server/src/handoff.ts')
+  const big = path.join(tmp, 'big-state.md')
+  fs.writeFileSync(big, '# State\n' + '- an old log line that is long enough\n'.repeat(1200)) // about 11K tokens
+  assert.match(sizeNote(big), /^It is about 11K tokens now, .* into .*big-state-archive\.md .* under about 8K\. $/)
+  fs.writeFileSync(big, '# State\n- short\n')
+  assert.equal(sizeNote(big), '')
+  assert.equal(sizeNote(path.join(tmp, 'missing.md')), '')
   usage.record('main', { context_window: { used_percentage: 66, context_window_size: 200_000 } }) // asked once
   // Nothing happens until the state is written down.
   await new Promise(r => setTimeout(r, 1200))
@@ -1490,6 +1498,7 @@ test('a fresh context can be asked for by hand, for a worker too', async () => {
   const asked = await messageWhere('asked', m => m.from_name === 'neural' && m.to_name === 'hw' && /A fresh context was asked for/.test(m.body))
   const file = path.join(tmp, 'uploads/handoff/hw.md')
   assert.ok(asked.body.includes(file))
+  assert.ok(!asked.body.includes('archive'))
   fs.writeFileSync(file, 'hw state\n')
   await until('hw restarted fresh', async () => {
     const s = await session('hw')

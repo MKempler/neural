@@ -54,6 +54,20 @@ export function onContext(name: string, used: number | null, size: number | null
   if ((t.percent && used >= t.percent) || (t.tokens && tokens != null && tokens >= t.tokens)) void ask(s, false, tokens)
 }
 
+/** A state file the fresh session reads in full should stay small; past about 8K tokens, ask for history to be
+ *  archived. Tokens are estimated at 4 bytes each. */
+const ARCHIVE_TOKENS = 8000
+export function sizeNote(file: string) {
+  let bytes = 0
+  try { bytes = fs.statSync(file).size } catch { return '' }
+  const tokens = Math.round(bytes / 4)
+  if (tokens <= ARCHIVE_TOKENS) return ''
+  const archive = file.replace(/(\.md)?$/, '-archive.md')
+  return `It is about ${Math.round(tokens / 1000)}K tokens now, and a fresh session reads all of it: move finished work, `
+    + `old logs and settled history into ${archive} (append; nothing needs to read it) to bring it under about `
+    + `${ARCHIVE_TOKENS / 1000}K. `
+}
+
 /** Ask the session to write down its state; the restart follows once it has (see check). */
 export async function ask(s: Session, manual: boolean, tokens: number | null = null) {
   if (stateOf(s.name)) return { already: true }
@@ -66,6 +80,7 @@ export async function ask(s: Session, manual: boolean, tokens: number | null = n
     : `Your context is ${used != null ? `${used}% full` : 'filling up'}${tokens ? ` (about ${Math.round(tokens / 1000)}K tokens, re-read on every turn)` : ''}.`
   await send(s.name, `**Time for a fresh context.** ${why} Bring ${file} up to date so a fresh session can carry on from it: `
     + `what is running and where each piece of work stands, decisions made and why, open questions, and next steps. `
+    + sizeNote(file)
     + `When it's saved and you have nothing in progress, end your turn. Neural then restarts you with a fresh context `
     + `(not resumed) and you start from your instructions and that file. Keep the file accurate; it is all you will have.`)
   sessionChanged(s.name)

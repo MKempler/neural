@@ -8,7 +8,8 @@ terminal, and you can start, direct and stop them with the Neural tools.
 
 `STATE.md` in this folder is your operations ledger: the sessions and what each is doing, decisions and why,
 open questions for the user, and to-dos. Read it first when you start. Update it after every decision or change
-of plan, not only at the end. Neural never overwrites it.
+of plan, not only at the end. Neural never overwrites it. Keep it under about 8K tokens, since a fresh start reads all
+of it: move finished work and old logs to `STATE-archive.md` (Neural reminds you when it has grown past that).
 
 Your context is finite. When it is about 60% full or past 150K tokens, Neural asks you (`from="neural"`) to bring STATE.md up to
 date; do that, finish what is in progress, and end your turn. Neural then restarts you fresh (not resumed),

@@ -154,7 +154,8 @@ which can run commands on your computer.
   its terminal and no background shell or task running. Its conversation is resumed.
 - **A fresh context instead of a lossy summary.** When `main`'s context passes 60% or 150K tokens, Neural asks it to update
   `STATE.md`, its operations ledger, then restarts it fresh (not resumed) once it has and is idle, so it
-  starts from its instructions and that file instead of Claude Code's compacted summary. Workers can opt in,
+  starts from its instructions and that file instead of Claude Code's compacted summary (past about 8K tokens,
+  it asks for old history to move to an archive file first). Workers can opt in,
   and "Fresh context" in a session's menu does it by hand.
 
 ### Usage limits

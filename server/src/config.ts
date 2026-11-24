@@ -29,7 +29,7 @@ function loadSecret(): string {
 }
 
 // Optional settings file in the data directory; environment variables take precedence.
-function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean; handoffAt?: number; handoffWorkerAt?: number; handoffTokens?: number; handoffWorkerTokens?: number } {
+function loadFile(): { allowedLogins?: string[]; allowedHosts?: string[]; displayName?: string; autoContinue?: boolean; projectsRoot?: string; autoRefresh?: boolean; quotaHold?: boolean; handoffAt?: number; handoffWorkerAt?: number; handoffTokens?: number; handoffWorkerTokens?: number; workerClaudeaiMcp?: boolean } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8'))
   } catch {
@@ -94,6 +94,9 @@ export const config = {
   // A backstop for sessions without handoffs: Claude Code compacts once the context reaches this many tokens,
   // instead of letting a 1M-token context fill (every turn re-reads all of it). 0 leaves Claude Code's default.
   autoCompactWindow: Number(env('AUTO_COMPACT_WINDOW') ?? 300_000),
+  // Workers start without the claude.ai connectors (Drive, Gmail, Calendar...): their tool definitions add a few
+  // thousand tokens to every request. Orchestrators keep them. Set to 1 to give workers the connectors too.
+  workerClaudeaiMcp: env('WORKER_CLAUDEAI_MCP') === '1' || file.workerClaudeaiMcp === true,
   // How long a session may sit at startup prompts Neural doesn't recognise before it is shown as needing attention.
   startupAttentionMs: Number(env('STARTUP_ATTENTION_MS') ?? 90_000),
   recoveredAfterMs: Number(env('RECOVERED_MS') ?? 60_000),

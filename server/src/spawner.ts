@@ -300,6 +300,7 @@ export async function startSession(
   // The channel server negotiates the earlier MCP handshake; newer revisions do not register channels.
   const env: Record<string, string> = { MCP_PROTOCOL_NEGOTIATION: 'legacy' }
   if (config.autoCompactWindow > 0) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(config.autoCompactWindow)
+  if (s.role !== 'orchestrator' && !config.workerClaudeaiMcp) env.ENABLE_CLAUDEAI_MCP_SERVERS = 'false'
   await mux.spawn(name, cwd, launchArgv(s, { resume: opts.resume }), env)
   sessions.update(name, { launch_rev: launchRev(s) })
   spawnedAt.set(name, Date.now())

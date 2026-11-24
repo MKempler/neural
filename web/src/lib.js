@@ -115,15 +115,20 @@ DOMPurify.addHook('afterSanitizeAttributes', node => {
 })
 
 const cache = new Map()
-export function markdown(text) {
-  if (cache.has(text)) return cache.get(text)
-  const clean = DOMPurify.sanitize(marked.parse(text), { FORBID_TAGS: ['style', 'img', 'iframe', 'form', 'input'] })
+/**
+ * Markdown to safe HTML. Chat keeps each newline as a line break; a file (`{ file: true }`) joins its
+ * hard-wrapped lines into paragraphs, so they reflow on a phone instead of ending in jagged half-lines.
+ */
+export function markdown(text, { file = false } = {}) {
+  const key = file ? `\0file\0${text}` : text
+  if (cache.has(key)) return cache.get(key)
+  const clean = DOMPurify.sanitize(marked.parse(text, { breaks: !file }), { FORBID_TAGS: ['style', 'img', 'iframe', 'form', 'input'] })
   const out = clean
     .replace(/<pre>/g, '<div class="code"><button type="button" class="btn sm copy" data-copy>Copy</button><pre>')
     .replace(/<\/pre>/g, '</pre></div>')
   const linked = linkPaths(out)
   if (cache.size > 500) cache.clear()
-  cache.set(text, linked)
+  cache.set(key, linked)
   return linked
 }
 

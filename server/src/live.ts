@@ -38,6 +38,9 @@ export function setBackground(name: string, what: string | null) {
   sessionChanged(name)
 }
 
+/** When each session's latest turn started, kept after the turn ends (a status note older than it is stale). */
+export const lastTurn = new Map<string, number>()
+
 export function setDoing(name: string, text: string | null) {
   if (text === null) {
     if (!doing.delete(name)) return
@@ -65,6 +68,7 @@ export function setStatus(name: string, status: string, detail: string | null = 
   if (!before) return
   if (before.status === status && before.status_detail === detail) return
   sessions.update(name, { status, status_detail: detail })
+  if (status === 'working' && before.status !== 'working') lastTurn.set(name, turns.get(name)?.startedAt ?? Date.now())
   if (status !== 'working' && status !== 'blocked') setDoing(name, null)
   if (status !== 'idle') background.delete(name)
   sessionChanged(name)
@@ -85,5 +89,6 @@ export function publicSession<T extends { name: string; mcp_servers?: string | n
   } catch {
     // unreadable: none shown
   }
-  return { ...s, mcp_servers: names, background: background.get(s.name) ?? null }
+  const turn = lastTurn.get(s.name)
+  return { ...s, mcp_servers: names, background: background.get(s.name) ?? null, turn_at: turn ? new Date(turn).toISOString() : null }
 }

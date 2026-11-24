@@ -953,6 +953,8 @@ button.result:hover { background: var(--surface-2); }
 .job-detail .actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 .card-note { margin: 0; padding: 4px 8px; border-radius: var(--r); background: var(--accent-tint); color: var(--text); font-size: var(--fs-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.card-note .note-age { margin-right: 8px; font: var(--fs-xs)/1 var(--mono); color: var(--text-3); white-space: nowrap; }
+.card-note.stale { background: var(--surface-2); color: var(--text-3); }
 
 /* ------------------------------------------------------------------------------------------- */
 /* File viewer                                                                                   */

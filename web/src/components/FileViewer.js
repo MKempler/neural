@@ -87,7 +87,7 @@ export function FileViewer() {
         ${data && html`
           ${data.redacted && html`<p class="file-note">${data.redacted} secret${data.redacted > 1 ? 's' : ''} hidden.</p>`}
           ${data.truncated && html`<p class="file-note">Showing the first ${fmtBytes(data.text.length)}.</p>`}
-          ${data.kind === 'markdown' && html`<div class="md file-md" dangerouslySetInnerHTML=${{ __html: markdown(data.text) }} />`}
+          ${data.kind === 'markdown' && html`<div class="md file-md" dangerouslySetInnerHTML=${{ __html: markdown(data.text, { file: true }) }} />`}
           ${(data.kind === 'code' || data.kind === 'text') && html`<${Code} text=${data.text} lang=${data.lang} line=${fv.line} />`}
           ${data.kind === 'image' && html`<div class="file-image"><img src=${raw} alt=${data.name} /></div>`}
           ${data.kind === 'binary' && html`<p class="file-note">A binary file; nothing to show.</p>`}

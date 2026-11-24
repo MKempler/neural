@@ -108,6 +108,13 @@ function Trouble({ s }) {
   </div>`
 }
 
+/** The status note with its age, dimmed once the session has started a turn since setting it. */
+function CardNote({ s }) {
+  const stale = s.turn_at && s.note_at && Date.parse(s.turn_at) > Date.parse(s.note_at)
+  return html`<p class=${`card-note ${stale ? 'stale' : ''}`} title=${stale ? 'Set before its current or latest turn' : ''}>
+    <span class="note-age">note · ${ago(s.note_at)}</span>${s.note}</p>`
+}
+
 export function SessionCard({ s }) {
   const m = s.last_message
   const from = m ? (m.from_name === 'user' ? 'you' : m.from_name === s.name ? '' : m.from_name) : ''
@@ -121,7 +128,7 @@ export function SessionCard({ s }) {
       ${s.context?.used >= 80 && html`<span class="tag warn"><${ContextChip} s=${s} /></span>`}
       <span class="cwd" title=${s.cwd}>${shortPath(s.cwd)}</span>
     </div>
-    ${s.note && html`<p class="card-note" title=${`Set ${ago(s.note_at)} ago`}>${s.note}</p>`}
+    ${s.note && html`<${CardNote} s=${s} />`}
     <p class="card-excerpt">${m ? html`${from && html`<span class="from">${from}: </span>`}${excerpt(m)}` : html`<span class="muted">No messages yet</span>`}</p>
     <div class="card-foot">
       <span>${m ? ago(m.ts) : ago(s.created_at)}</span>

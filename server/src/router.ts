@@ -13,6 +13,7 @@ import * as usage from './usage.ts'
 import * as clock from './clock.ts'
 import * as jobs from './jobs.ts'
 import * as handoff from './handoff.ts'
+import * as templates from './templates.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -686,7 +687,7 @@ export async function answerQuestion(id: number, body: any) {
 // ---------------------------------------------------------------------------------------------
 // Tools: calls the channel MCP server forwards on behalf of Claude.
 
-const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for', 'set_priority', 'set_model', 'set_mcp_servers', 'fresh_context'])
+const ORCHESTRATOR_ONLY = new Set(['spawn_session', 'stop_session', 'restart_session', 'read_screen', 'wait_for', 'set_priority', 'set_model', 'set_mcp_servers', 'fresh_context', 'list_templates', 'set_template'])
 
 export function setPriority(name: string, priority: unknown) {
   if (!sessions.get(name)) throw new Error(`no session "${name}"`)
@@ -766,6 +767,12 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       }
       return { name: s.name, ...(await handoff.ask(s, true)) }
     }
+    case 'list_templates':
+      return templates.all()
+    case 'set_template': {
+      const t = templates.set(String(a.name ?? ''), a.remove === true ? null : (a.fields ?? {}), a.replace === true)
+      return t ? { name: a.name, template: t } : { removed: a.name }
+    }
     case 'set_priority':
       setPriority(String(a.name), a.priority)
       return { name: a.name, priority: a.priority }
@@ -777,6 +784,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
         .map(m => ({ id: m.id, ts: m.ts, from: m.from_name, to: m.to_name, body: m.body }))
     }
     case 'spawn_session': {
+      a = templates.apply(a) // a role template fills in what the call leaves out
       if (!validName(String(a.name))) throw new Error('name must be lowercase letters, digits, - or _ (up to 32 characters)')
       if (sessions.get(a.name) && (await mux.alive(a.name))) throw new Error(`"${a.name}" is already running`)
       await ensureClaude() // before a project folder is made for a session that couldn't start
@@ -789,9 +797,9 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       if (!cwd) throw new Error('cwd is required (or new_project, or clone)')
       await startSession(a.name, { cwd, role: 'worker', model: a.model, effort: a.effort, mcpServers: a.mcp_servers })
       if (a.priority) setPriority(a.name, a.priority)
-      if (typeof a.fresh_context === 'boolean') handoff.setEnabled(a.name, a.fresh_context)
+      if (typeof a.fresh_context === 'boolean') handoff.setEnabled(a.name, a.fresh_context, a.fresh_at)
       if (a.initial_prompt) sendMessage({ from: caller, to: a.name, body: a.initial_prompt, source: 'send_message' })
-      return { started: a.name, cwd, note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
+      return { started: a.name, cwd, ...(a.template ? { template: a.template } : {}), note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
     }
     case 'stop_session':
       if (a.name === caller) throw new Error('refusing to stop yourself')

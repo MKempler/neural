@@ -211,7 +211,7 @@ Neural gives each session its tools through a small MCP server, the channel.
 | Who | Tools |
 | :- | :- |
 | Every session | `reply`, `send_message`, `list_sessions`, `search_history`, `get_thread`, `set_status`, `add_job`, `list_jobs`, `run_job`, `pause_job`, `remove_job` |
-| The orchestrator also | `spawn_session` (with `model`, `effort`, `priority`, `mcp_servers`, `fresh_context`, `new_project`, `clone`), `stop_session`, `restart_session`, `read_screen`, `wait_for`, `set_model`, `set_priority`, `set_mcp_servers`, `fresh_context` |
+| The orchestrator also | `spawn_session` (with `template`, `model`, `effort`, `priority`, `mcp_servers`, `fresh_context`, `new_project`, `clone`), `stop_session`, `restart_session`, `read_screen`, `wait_for`, `set_model`, `set_priority`, `set_mcp_servers`, `fresh_context`, `list_templates`, `set_template` |
 
 The orchestrator's instructions live in [orchestrator/CLAUDE.md](orchestrator/CLAUDE.md). Neural copies them
 into `main`'s folder and keeps that copy up to date unless you edit it; it never touches `STATE.md`.

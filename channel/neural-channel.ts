@@ -60,6 +60,7 @@ const TOOLS = [
 const ORCHESTRATOR_TOOLS = [
   tool('spawn_session', 'Start a new Claude Code session in its own terminal. It is ready a few seconds later; messages sent before then are queued. Give cwd for an existing folder; or new_project to create a new project folder (with git) named after the session in the projects folder; or clone to clone a GitHub repository there first.', {
     name: str('Short unique name: lowercase letters, digits, - or _'),
+    template: str('A role template (list_templates) whose settings and starting instructions it gets; anything else given here overrides them'),
     cwd: str('Absolute path of the directory it works in (an existing folder)'),
     new_project: { type: 'boolean', description: 'Create a new project folder named after the session, with git, in the projects folder (~/Projects unless configured), and work there' },
     github_repo: { type: 'boolean', description: 'With new_project: also create a private GitHub repository for it as origin. Only when the user asked for one' },
@@ -70,6 +71,13 @@ const ORCHESTRATOR_TOOLS = [
     mcp_servers: { type: 'object', description: 'Extra MCP servers for this session only, kept across restarts: {"name": {"command": "...", "args": [...], "env": {...}}} or {"name": {"type": "http", "url": "..."}}. Stored in Neural\'s database, so prefer servers that read their keys from their own config over keys in env' },
     fresh_context: { type: 'boolean', description: 'Near a full context, have it write a handoff note and restart it fresh instead of letting Claude Code compact (default off for workers)' },
     priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'low: work that can wait. Near a usage limit Neural holds messages from other sessions to it until the reset (default normal)' },
+  }, ['name']),
+  tool('list_templates', 'List the role templates spawn_session can start a session from (template: "<name>"): each one\'s model, effort, MCP servers, priority, handoff threshold and starting instructions.', {}),
+  tool('set_template', 'Add, edit or remove a role template for spawn_session. Fields are merged into what it has (a null field removes that field) unless replace is true.', {
+    name: str('Template name: lowercase letters, digits, - or _'),
+    fields: { type: 'object', description: '{"description", "model", "effort", "mcp_servers", "priority": "high|normal|low", "fresh_context": bool, "fresh_at_percent", "fresh_at_tokens", "instructions": text sent first to every session started from it}' },
+    replace: { type: 'boolean', description: 'Replace the template with these fields instead of merging' },
+    remove: { type: 'boolean', description: 'Remove the template' },
   }, ['name']),
   tool('set_model', 'Change the model and/or effort a session runs on, kept across restarts. An idle session is restarted with it at once (its conversation resumes); a busy one switches after its turn. Use "default" to go back to Claude Code\'s default.', {
     name: str('Session name'),

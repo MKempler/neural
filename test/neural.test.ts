@@ -1195,6 +1195,40 @@ test('a session can be started on a model and effort, kept across restarts, and 
   await idle('main')
 })
 
+test('role templates preset a spawned session, and the orchestrator can list and edit them', async () => {
+  await idle('main')
+  const tool = async (name: string, args: unknown) => {
+    const sent = await say('main', `tool ${name} ${JSON.stringify(args)}`)
+    return (await messageWhere(`${name} result`, m => m.from_name === 'main' && m.in_reply_to === sent.id)).body as string
+  }
+  const listed = JSON.parse(await tool('list_templates', {}))
+  assert.deepEqual(Object.keys(listed), ['builder', 'qa', 'research'])
+  assert.equal(listed.research.priority, 'low')
+  assert.match(await tool('set_template', { name: 'qa', fields: { effort: 'huge' } }), /^ERROR effort must be one of/)
+  assert.match(await tool('set_template', { name: 'qa', fields: { colour: 'red' } }), /^ERROR unknown template field "colour"/)
+  assert.match(await tool('set_template', { name: 'Bad Name', fields: {} }), /^ERROR template name/)
+  await tool('set_template', { name: 'qa', fields: { model: 'haiku', instructions: 'You are QA.', fresh_at_tokens: 90000 } })
+  assert.match(await tool('spawn_session', { name: 'tq', cwd: tmp, template: 'nope' }), /^ERROR no template "nope"/)
+  await tool('spawn_session', { name: 'tq', cwd: tmp, template: 'qa', effort: 'low', initial_prompt: 'check it' })
+  await messageWhere('tq answers', m => m.from_name === 'tq' && m.body === 'echo: You are QA.\n\ncheck it')
+  await idle('tq')
+  // The template's model, the call's effort over the template's.
+  assert.match((await get('/api/screen/tq')).screen, /started .* model=haiku effort=low/)
+  const { sessions } = await import('../server/src/db.ts')
+  assert.equal(sessions.get('tq')?.handoff, 1)
+  assert.equal(sessions.get('tq')?.handoff_tokens, 90000)
+  await tool('spawn_session', { name: 'tr', cwd: tmp, template: 'research' })
+  await until('tr started', () => sessions.get('tr'))
+  assert.equal(sessions.get('tr')?.priority, 'low')
+  assert.match(await tool('set_template', { name: 'research', remove: true }), /"removed": "research"/)
+  assert.deepEqual(Object.keys(JSON.parse(await tool('list_templates', {}))), ['builder', 'qa'])
+  const { removeSession } = await import('../server/src/spawner.ts')
+  await idle('tr')
+  await removeSession('tq')
+  await removeSession('tr')
+  await idle('main')
+})
+
 test('scripts and jobs send messages with `neural notify`, which needs the secret', async () => {
   const { execFile } = await import('node:child_process')
   const cli = (args: string[], input?: string) => new Promise<{ code: number; out: string; err: string }>(resolve => {

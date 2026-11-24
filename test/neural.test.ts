@@ -1138,6 +1138,7 @@ test('the quota guard: alerts at 80% and 95% with who used it, and low-priority 
   const out = await messageWhere('list_sessions', m => m.from_name === 'main' && m.in_reply_to === listed.id)
   assert.match(out.body, /"priority": "low"/)
   assert.match(out.body, /"usage_share"/)
+  assert.match(out.body, /"usage": \{\s*"five_hour": \{\s*"used": \d+,\s*"resets": "[^"]+",\s*"pace"/)
   // The window resets: the held message goes out.
   usage.record('main', reading(0.8, 3, resets + 5 * 3600))
   await until('delivered after the reset', async () =>
@@ -1704,6 +1705,15 @@ test('the usage meter does not flap between sessions: an idle session\'s older, 
   usage.record('hw', reading(2, resets + 5 * 3600))
   assert.deepEqual(usage.account()?.five_hour, { used: 2, resets_at: resets + 5 * 3600 })
   assert.equal(usage.merge(null, { used: 5, resets_at: 1 })?.used, 5)
+  // The pace: when the window would hit 100% at the rate of the last few hours, if before it resets.
+  const t0 = Date.parse('2026-01-01T12:00:00Z'), r = t0 / 1000 + 5 * 3600
+  const { when } = await import('../server/src/clock.ts')
+  const at = (mins: number, used: number) => ({ t: t0 + mins * 60_000, five: { used, resets_at: r }, week: null })
+  assert.equal(usage.windowOutlook('five', { used: 40, resets_at: r }, [at(0, 20)], t0 + 3600_000)?.pace, when(t0 + 4 * 3600_000))
+  assert.equal(usage.windowOutlook('five', { used: 30, resets_at: r }, [at(0, 20)], t0 + 3600_000)?.pace, null) // not before the reset
+  assert.equal(usage.windowOutlook('five', { used: 40, resets_at: r }, [at(55, 20)], t0 + 3600_000)?.pace, null) // too little history
+  assert.equal(usage.windowOutlook('five', { used: 40, resets_at: r }, [at(0, 20)], t0 + 5 * 3600_000), null) // already reset
+  assert.equal(usage.windowOutlook('five', { used: 40, resets_at: r + 5 * 3600 }, [at(0, 20)], t0 + 3600_000)?.pace, null) // another window
   assert.equal(usage.merge({ used: 5, resets_at: 1 }, null)?.used, 5)
 })
 

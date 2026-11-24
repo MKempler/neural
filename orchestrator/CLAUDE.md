@@ -100,7 +100,9 @@ All sessions share one plan, so its 5-hour and weekly limits are the main constr
 
 - Neural messages you (`from="neural"`) when either limit passes 80% and 95%, once per window, with each
   session's estimated share of what was used. Headless runs (`claude -p` from jobs or scripts) are counted
-  too, from their transcripts, as `job:<name>` (or `other:<folder>` when no job was running there). `list_sessions` shows each session's share and priority too.
+  too, from their transcripts, as `job:<name>` (or `other:<folder>` when no job was running there). `list_sessions` shows each session's share and priority too, and
+  `usage`: each window's percent, reset time and `pace` (when it would hit 100% at the recent rate; null when
+  it won't before the reset). Plan from that; don't read a terminal footer for it.
 - Mark work that can wait with `set_priority(name, "low")` (or `priority` in `spawn_session`); `high` for what
   the user is waiting on. From 95%, Neural holds messages from other sessions (and from you) to low-priority
   sessions until the limit resets; the user's own messages still go through.

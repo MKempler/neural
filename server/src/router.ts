@@ -713,7 +713,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       return say(caller, String(a.to), a.text, a.to === 'user' ? 'reply' : 'send_message', a.in_reply_to, await importAll(a.files), a.fyi === true)
     case 'list_sessions': {
       const all = usage.shares()
-      return sessions.all().map(s => ({
+      return { usage: usage.outlook(), sessions: sessions.all().map(s => ({
         name: s.name, role: s.role, status: s.status, cwd: s.cwd, connected: Boolean(s.channel_connected), you: s.name === caller,
         background: background.get(s.name) ?? null, // idle, but with shells or tasks still running ("1 shell")
         note: s.note ? { text: s.note, at: s.note_at } : null,
@@ -722,7 +722,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
         mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : [],
         context_used: usage.context(s.name)?.used ?? null,
         fresh_context: handoff.enabled(s) ? handoff.threshold(s) : false,
-      }))
+      })) }
     }
     case 'set_status': {
       const note = clean(String(a.note ?? '').replace(/\s+/g, ' ').trim()).slice(0, 200)

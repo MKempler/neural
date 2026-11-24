@@ -74,12 +74,48 @@ export function record(name: string, payload: any): string {
     const next: Account = { five_hour: merge(acc?.five_hour, five), seven_day: merge(acc?.seven_day, week), at }
     if (!acc || !sameWindow(acc.five_hour, next.five_hour) || !sameWindow(acc.seven_day, next.seven_day)) {
       store.set(ACCOUNT, next)
+      sample(next)
       broadcast({ type: 'usage', account: next })
       checkQuota(next)
     }
     acc = next
   }
   return line(ctx, acc)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The outlook for list_sessions: each window's use, reset time and pace, so the orchestrator can plan without
+// reading a footer. The pace comes from the account's readings over the last few hours.
+
+export interface Sample { t: number; five: Window | null; week: Window | null }
+const SAMPLES = 'usageSamples'
+const KEEP = 8 * 86400_000
+const PACE_SPAN = 6 * 3600_000 // the slope is taken over this much recent history
+const PACE_MIN = 20 * 60_000 // and needs at least this much of it
+
+function sample(acc: Account, now = Date.now()) {
+  const list = (prefs.get<Sample[]>(SAMPLES) ?? []).filter(x => x.t > now - KEEP)
+  list.push({ t: now, five: acc.five_hour, week: acc.seven_day })
+  prefs.set(SAMPLES, list)
+}
+
+export interface Outlook { used: number; resets: string; pace: string | null }
+
+/** One window's outlook: `pace` is when it would reach 100% at the recent rate, or null when not before it resets. */
+export function windowOutlook(key: 'five' | 'week', w: Window | null | undefined, samples: Sample[], now = Date.now()): Outlook | null {
+  if (!w || w.resets_at * 1000 <= now) return null
+  // The oldest reading of this same window within the span.
+  const first = samples.find(x => x.t >= now - PACE_SPAN && x[key] && Math.abs(x[key]!.resets_at - w.resets_at) <= SAME_WINDOW)
+  let pace: string | null = null
+  if (first && now - first.t >= PACE_MIN && w.used > first[key]!.used && w.used < 100) {
+    const full = now + (100 - w.used) * (now - first.t) / (w.used - first[key]!.used)
+    if (full < w.resets_at * 1000) pace = when(full)
+  }
+  return { used: w.used, resets: when(w.resets_at * 1000), pace }
+}
+
+export function outlook(acc = account(), samples = prefs.get<Sample[]>(SAMPLES) ?? [], now = Date.now()) {
+  return { five_hour: windowOutlook('five', acc?.five_hour, samples, now), weekly: windowOutlook('week', acc?.seven_day, samples, now) }
 }
 
 /** "context 41% · 5-hour 62% (resets 8:20 pm) · week 41%" */

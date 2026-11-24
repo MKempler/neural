@@ -89,6 +89,44 @@ export function nextRun(schedule: string, from = Date.now()): number {
   throw new Error('that schedule never fires')
 }
 
+const DAY_NAMES = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const one = (set: Set<number>) => (set.size === 1 ? [...set][0] : null)
+const clock = (h: number, m: number) => `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`
+const plural = (n: number, unit: string) => (n === 1 ? `every ${unit}` : `every ${n} ${unit}s`)
+
+/** A schedule in words ("every 30 min", "weekdays 9:30 am", "once, Nov 21 at 9:00 am"), or the text itself. */
+export function describeSchedule(schedule: string): string {
+  let spec: Spec
+  try { spec = parseSchedule(schedule) } catch { return schedule }
+  if ('every' in spec) {
+    const n = spec.every
+    return n % 86400_000 === 0 ? plural(n / 86400_000, 'day') : n % 3600_000 === 0 ? plural(n / 3600_000, 'hour') : `every ${n / 60_000} min`
+  }
+  const [mins, hours, doms, months, dows] = spec.cron
+  const m = one(mins), h = one(hours), dom = one(doms), month = one(months)
+  const anyDom = doms.size === 31, anyMonth = months.size === 12, anyDow = dows.size === 7
+  const steps = [...mins].sort((a, b) => a - b), gap = steps[1] - steps[0]
+  if (steps.length > 1 && steps[0] === 0 && 60 % gap === 0 && steps.length === 60 / gap && hours.size === 24 && anyDom && anyMonth && anyDow) return `every ${gap} min`
+  if (m !== null && hours.size === 24 && anyDom && anyMonth && anyDow) return `hourly at :${String(m).padStart(2, '0')}`
+  if (m === null || h === null) return schedule
+  const at = clock(h, m)
+  if (dom !== null && month !== null && anyDow) return `once, ${MONTHS[month - 1]} ${dom} at ${at}`
+  if (dom !== null && anyMonth && anyDow) return `monthly on day ${dom} at ${at}`
+  if (!anyDom || !anyMonth) return schedule
+  const days = [...dows].sort().join(',')
+  if (anyDow) return `daily ${at}`
+  if (days === '1,2,3,4,5') return `weekdays ${at}`
+  if (days === '0,6') return `weekends ${at}`
+  return `${[...dows].sort().map(d => DAY_NAMES[d]).join(', ')} ${at}`
+}
+
+/** A one-off job (a set date, like "0 9 21 11 *") whose date came after it was made and has passed: nothing left to run. */
+export function isDone(j: Pick<Job, 'schedule' | 'created_at'>, now = Date.now()): boolean {
+  if (!describeSchedule(j.schedule).startsWith('once,')) return false
+  try { return nextRun(j.schedule, Date.parse(j.created_at)) <= now } catch { return false }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Storage.
 
@@ -112,7 +150,7 @@ export function jobAt(cwd: string, at: string): string | null {
 export function view(j: Job) {
   const last = jobs.lastRun(j.id)
   return {
-    name: j.name, schedule: j.schedule, enabled: Boolean(j.enabled), cwd: j.cwd, timeout_s: j.timeout_s,
+    name: j.name, schedule: j.schedule, when: describeSchedule(j.schedule), ...(isDone(j) ? { done: true } : {}), enabled: Boolean(j.enabled), cwd: j.cwd, timeout_s: j.timeout_s,
     ...(j.command ? { command: j.command } : { session: j.session, prompt: j.prompt }),
     created_by: j.created_by, next_run_at: j.enabled ? j.next_run_at : null, failures_in_a_row: j.failures,
     last_run: last ? { status: last.status, started_at: last.started_at, finished_at: last.finished_at, exit_code: last.exit_code, output_tail: tailOf(last.output, 15) } : null,

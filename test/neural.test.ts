@@ -1334,6 +1334,22 @@ test('job schedules: intervals, daily and weekday times, and cron', async () => 
   assert.throws(() => parseSchedule('61 * * * *'), /bad schedule field/)
 })
 
+test('job schedules in words, and one-off jobs whose date has passed are done', async () => {
+  const { describeSchedule: d, isDone } = await import('../server/src/jobs.ts')
+  assert.equal(d('every 30m'), 'every 30 min')
+  assert.equal(d('every 60m'), 'every hour')
+  assert.equal(d('*/5 * * * *'), 'every 5 min')
+  assert.equal(d('daily 13:55'), 'daily 1:55 pm')
+  assert.equal(d('tue 09:00'), 'Tuesdays 9:00 am')
+  assert.equal(d('0 8 * * 1-5'), 'weekdays 8:00 am')
+  assert.equal(d('0 9 21 11 *'), 'once, Nov 21 at 9:00 am')
+  assert.equal(d('0 8,20 * * *'), '0 8,20 * * *')
+  const made = new Date(2026, 10, 18, 12, 0).toISOString()
+  assert.equal(isDone({ schedule: '0 9 21 11 *', created_at: made }, new Date(2026, 10, 22).getTime()), true)
+  assert.equal(isDone({ schedule: '0 3 1 1 *', created_at: made }, new Date(2026, 10, 22).getTime()), false)
+  assert.equal(isDone({ schedule: 'daily 08:00', created_at: made }, new Date(2026, 10, 22).getTime()), false)
+})
+
 test('scheduled jobs run with a proper PATH, keep their output, and report failures to main', async () => {
   await idle('main')
   const tool = async (name: string, args: unknown) => {

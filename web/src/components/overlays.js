@@ -39,7 +39,7 @@ export function SessionSwitcher() {
           const row = rowOf(s)
           return html`<button class=${`item ${row.waiting ? 'waiting' : ''} ${s.name === current ? 'sel' : ''}`} key=${s.name} onClick=${() => go(s.name)}>
             <${Dot} status=${row.dot} />
-            <span class="main"><span class="txt mono">${s.name}</span>
+            <span class="main"><span class="txt">${s.name}</span>
               <span class="sub">${row.line}</span>
               ${row.tool && html`<span class="sub tool">${row.tool}</span>`}</span>
             <${RowEnd} s=${s} r=${row} />

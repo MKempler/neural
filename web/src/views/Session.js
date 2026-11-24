@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { html, api, clock, dayLabel, tilde, shortPath, local, unmark, modelChip, isCommand, opensPicker } from '../lib.js'
 import { Icon } from '../icons.js'
-import { Dot, DownInfo, Menu, PermissionCard, StatusPill, downOf } from '../components/parts.js'
+import { Dot, DownInfo, Menu, PermissionCard, Skeleton, StatusPill, downOf } from '../components/parts.js'
 import { Composer, DropZone } from '../components/Composer.js'
 import { Message, ActivityLine } from '../components/Message.js'
 import { Terminal } from '../components/Terminal.js'
@@ -226,7 +226,7 @@ function Conversation({ s }) {
     <div class="thread" ref=${box} onScroll=${onScroll} onTouchStart=${onTouchStart} onTouchMove=${onTouchMove}>
       <div class="thread-inner">
         ${rows && rows.length >= 200 && more && html`<button class="btn ghost sm load-more" onClick=${older}>Load earlier messages</button>`}
-        ${rows === undefined ? html`<div class="empty">Loading…</div>`
+        ${rows === undefined ? html`<${Skeleton} kind="chat" n=${3} />`
           : items.length === 0 ? html`<div class="empty">No messages yet. Say something to <span class="mono">${s.name}</span>.</div>`
           : items}
         ${live(questions.value, s.name).map(q => html`<${QuestionCard} q=${q} key=${`q${q.id}`} />`)}
@@ -302,7 +302,7 @@ function ActivityLog({ name, status }) {
   useEffect(() => {
     api('GET', `/api/events/${encodeURIComponent(name)}`).then(setRows, () => setRows([]))
   }, [name, status])
-  if (!rows) return html`<div class="empty">Loading…</div>`
+  if (!rows) return html`<div class="thread"><${Skeleton} kind="chat" n=${4} /></div>`
   if (!rows.length) return html`<div class="empty">Nothing recorded yet.</div>`
   return html`<div class="thread"><div class="log">
     ${rows.map(e => html`<div class="log-row" key=${e.id}>

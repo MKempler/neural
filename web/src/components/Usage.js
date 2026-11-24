@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { html, when as at, api } from '../lib.js'
 import { usage } from '../store.js'
+import { Icon } from '../icons.js'
 
 /** A window as it stands now: one past its reset time has started over. */
 function current(w, now = Date.now()) {
@@ -25,10 +26,17 @@ export function UsageMeter() {
   useEffect(() => {
     api('GET', '/api/usage').then(r => setShares(r.shares), () => {})
   }, [usage.value?.five_hour?.used, usage.value?.seven_day?.used])
+  const [open, setOpen] = useState(false)
   if (!five && !week) return null
-  return html`<div class="usage">
-    ${five && html`<${Meter} label="5-hour" w=${five} by=${!five.reset && shares?.five_hour} />`}
-    ${week && html`<${Meter} label="Week" w=${week} by=${!week.reset && shares?.seven_day} />`}
+  // On a phone the meters fold into one line that opens them; it turns amber and moves to the top past 80%.
+  const hot = Math.max(five?.used ?? 0, week?.used ?? 0) >= 80
+  const line = [five && `5h ${five.used}%`, week && `week ${week.used}%`, five && `resets ${when(five.resets_at)}`].filter(Boolean).join(' · ')
+  return html`<div class=${`usage-wrap ${hot ? 'hot' : ''} ${open ? 'open' : ''}`}>
+    <button class="usage-line" aria-expanded=${open} onClick=${() => setOpen(!open)}><span>${line}</span><${Icon} name="down" size=${14} /></button>
+    <div class="usage">
+      ${five && html`<${Meter} label="5-hour" w=${five} by=${!five.reset && shares?.five_hour} />`}
+      ${week && html`<${Meter} label="Week" w=${week} by=${!week.reset && shares?.seven_day} />`}
+    </div>
   </div>`
 }
 

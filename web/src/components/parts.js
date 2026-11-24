@@ -137,6 +137,18 @@ export function Menu({ label = 'More', items }) {
   </div>`
 }
 
+// Grey placeholder rows the shape of the list that is loading, so nothing jumps when it arrives.
+// kind 'rows' looks like session rows (dot, name, line); 'chat' like message bubbles.
+export function Skeleton({ kind = 'rows', n = 4 }) {
+  return html`<div class=${`skeleton ${kind}`} aria-busy="true" aria-label="Loading">
+    ${Array.from({ length: n }, (_, i) => html`<div class="skel-row" key=${i}>
+      ${kind === 'rows' && html`<span class="skel dot-skel" />`}
+      <span class="skel-lines"><span class="skel" style=${`width:${[38, 26, 44, 32][i % 4]}%`} />
+        <span class="skel" style=${`width:${[72, 58, 84, 64][i % 4]}%`} /></span>
+    </div>`)}
+  </div>`
+}
+
 export const Cwd = ({ path }) => html`<span class="mono" title=${path}>${tilde(path)}</span>`
 
 // Moved to their own modules; re-exported so older imports keep working.

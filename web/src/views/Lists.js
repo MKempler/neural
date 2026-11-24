@@ -1,6 +1,6 @@
 // Timeline (every message) and Search (keyword and meaning).
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { html, api, ago, unmark } from '../lib.js'
+import { html, api, ago, unmark, local } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Message } from '../components/parts.js'
 import { recent, sessions, sessionList, route, navigate, sessionPath } from '../store.js'
@@ -43,7 +43,9 @@ export function Search() {
     if (route.value.q) run(route.value.q)
   }, [])
   async function run(query) {
-    if (!query.trim()) return setResults(null)
+    query = query.trim()
+    if (!query) return setResults(null)
+    local.set(RECENT, [query, ...local.get(RECENT, []).filter(x => x !== query)].slice(0, 6))
     setBusy(true)
     try {
       setResults(await api('GET', `/api/search?limit=50&q=${encodeURIComponent(query)}`))
@@ -51,10 +53,14 @@ export function Search() {
       setBusy(false)
     }
   }
+  const search = text => {
+    setQ(text)
+    navigate(`/search?q=${encodeURIComponent(text)}`, { replace: true })
+    run(text)
+  }
   const submit = e => {
     e.preventDefault()
-    navigate(`/search?q=${encodeURIComponent(q)}`, { replace: true })
-    run(q)
+    search(q)
   }
   return html`<div class="scroll"><div class="page narrow">
     <div class="page-head"><h1>Search</h1><span class="label">every message and transcript</span></div>
@@ -63,10 +69,23 @@ export function Search() {
         placeholder="A word, a phrase, or a question" autocomplete="off" />
       <button class="btn primary" disabled=${busy}><${Icon} name="search" />Search</button>
     </form>
-    ${results === null ? html`<div class="empty">Search by keyword or describe what you remember. Results that match by meaning are marked.</div>`
+    ${results === null ? html`<${SearchStart} pick=${search} />`
       : results.length === 0 ? html`<div class="empty">Nothing found.</div>`
       : html`<div class="results">${results.map(r => html`<${Result} r=${r} key=${`${r.kind}${r.id}`} />`)}</div>`}
   </div></div>`
+}
+
+const RECENT = 'neural.recentSearches'
+const EXAMPLES = ['what did we decide about the channel name', 'why did the hub restart', 'tests failing']
+
+function SearchStart({ pick }) {
+  const recent = local.get(RECENT, [])
+  const chips = list => html`<div class="chips">${list.map(t => html`<button class="chip" key=${t} onClick=${() => pick(t)}>${t}</button>`)}</div>`
+  return html`<div class="search-start">
+    ${recent.length > 0 && html`<div><span class="label">Recent</span>${chips(recent)}</div>`}
+    <div><span class="label">Try</span>${chips(EXAMPLES)}</div>
+    <p class="hint">Search by keyword or describe what you remember. Results that match by meaning are marked.</p>
+  </div>`
 }
 
 export function Highlight({ text }) {

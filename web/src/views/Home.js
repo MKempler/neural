@@ -3,7 +3,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { html, asksSomething, ago, clock, plain, excerpt, shortPath, fmtNumber, modelChip } from '../lib.js'
 import { Icon } from '../icons.js'
 import { JobsSection } from '../components/Jobs.js'
-import { Composer, Dot, DownInfo, PermissionCard, StatusPill, Link, downOf } from '../components/parts.js'
+import { Composer, Dot, DownInfo, PermissionCard, StatusPill, Link, downOf, RowEnd, rowOf, waitingFirst } from '../components/parts.js'
 import { NotifySetup } from '../push.js'
 import { UsageMeter, ContextChip } from '../components/Usage.js'
 import { CardReplies } from '../components/QuickReplies.js'
@@ -25,18 +25,18 @@ export function Home() {
   const needs = perms.length + asks.length + troubled.length + unread.length
   const main = orchestrator.value
 
-  return html`<div class="scroll"><div class="page">
+  return html`<div class="scroll"><div class="page home">
     <header class="greeting">
       <h1>${name ? `Welcome back, ${name}` : 'Welcome back'}</h1>
       <${StatusLine} needs=${needs} />
-      <${UsageMeter} />
     </header>
+    <${UsageMeter} />
 
     ${main && html`<${Composer} variant="quick" draftKey="home" placeholder=${`Message ${main.name}…`}
       hint=${html`<span class="to">→ ${main.name}</span>`}
       onSend=${async (body, files) => { await send(main.name, body, files); navigate(sessionPath(main.name)) }} />`}
 
-    ${needs > 0 && html`<section class="section" aria-labelledby="needs">
+    ${needs > 0 && html`<section class="section needs" aria-labelledby="needs">
       <div class="section-head"><span class="label" id="needs">Needs you</span><span class="count">${needs}</span><span class="rule"></span></div>
       <div class="attention">
         ${perms.map(p => html`<${PermissionCard} p=${p} key=${`p${p.id}`} />`)}
@@ -51,7 +51,7 @@ export function Home() {
       </div>
     </section>`}
 
-    <section class="section" aria-labelledby="sessions-h">
+    <section class="section home-sessions" aria-labelledby="sessions-h">
       <div class="section-head"><span class="label" id="sessions-h">Sessions</span><span class="count">${list.length}</span><span class="rule"></span></div>
       <div class="grid">
         ${list.map(s => html`<${SessionCard} s=${s} key=${s.name} />`)}
@@ -119,7 +119,7 @@ function CardNote({ s }) {
 export function SessionCard({ s }) {
   const m = s.last_message
   const from = m ? (m.from_name === 'user' ? 'you' : m.from_name === s.name ? '' : m.from_name) : ''
-  return html`<div class="card" role="link" tabindex="0" onClick=${() => navigate(sessionPath(s.name))}
+  return html`<div class="card" data-status=${s.status} role="link" tabindex="0" onClick=${() => navigate(sessionPath(s.name))}
       onKeyDown=${e => e.key === 'Enter' && navigate(sessionPath(s.name))} aria-label=${`Open ${s.name}`}>
     <div class="card-top"><span class="card-name">${s.name}</span><${StatusPill} status=${s.status} background=${s.background} /></div>
     <div class="card-meta">
@@ -167,9 +167,18 @@ export function Sessions() {
   const list = sessionList.value
   return html`<div class="scroll"><div class="page">
     <div class="page-head"><h1>Sessions</h1><span class="label">${list.length} · ${totalUnread.value} unread</span></div>
-    <div class="grid">
-      ${list.map(s => html`<${SessionCard} s=${s} key=${s.name} />`)}
-      <button class="card new" onClick=${() => (newSessionOpen.value = true)}><${Icon} name="plus" />New session</button>
+    <div class="session-rows">
+      ${waitingFirst(list).map(s => {
+        const row = rowOf(s)
+        return html`<${Link} href=${sessionPath(s.name)} class=${`srow ${row.waiting ? 'waiting' : ''}`} key=${s.name}>
+          <${Dot} status=${row.dot} />
+          <span class="main"><span class="txt">${s.name}</span>
+            <span class="sub">${row.line}</span>
+            ${row.tool && html`<span class="sub tool">${row.tool}</span>`}</span>
+          <${RowEnd} s=${s} r=${row} />
+        <//>`
+      })}
+      <button class="srow new" onClick=${() => (newSessionOpen.value = true)}><${Icon} name="plus" />New session</button>
     </div>
     <${JobsSection} />
   </div></div>`

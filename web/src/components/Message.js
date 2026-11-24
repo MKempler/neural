@@ -38,6 +38,13 @@ async function copyText(text) {
  * Tap a message (or hover on desktop) to see its time and actions: copy, quote into the composer, retry if
  * it wasn't sent. `onQuote` receives the quoted Markdown. Pending (not yet sent) messages carry a `key`.
  */
+// A steady colour per session name, for the rule beside messages between sessions.
+function senderColor(name) {
+  let h = 0
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360
+  return `hsl(${h} 45% 58%)`
+}
+
 export function Message({ m, context, continued, onQuote }) {
   const [open, setOpen] = useState(false)
   const self = useRef(null)
@@ -46,6 +53,9 @@ export function Message({ m, context, continued, onQuote }) {
   const relay = m.from_name !== 'user' && m.to_name !== 'user'
   const pending = Boolean(m.key)
   const who = mine ? (context ? 'you' : `you → ${m.to_name}`) : m.from_name
+  // A long brief between sessions starts folded to about six lines.
+  const long = relay && Boolean(m.body) && (m.body.split('\n').length > 6 || m.body.length > 480)
+  const [expanded, setExpanded] = useState(false)
 
   const status = []
   if ((mine || relay) && m.delivery && !(relay && m.delivery === 'acked')) {
@@ -81,8 +91,8 @@ export function Message({ m, context, continued, onQuote }) {
     </div>`
   }
 
-  return html`<div class=${`msg ${m.source === 'error' ? 'error' : ''} ${mine ? 'mine' : ''} ${relay ? 'relay' : ''} ${continued ? 'continued' : ''} ${open ? 'open' : ''} ${pending ? 'pending' : ''}`}
-      onClick=${toggle} ref=${self}>
+  return html`<div class=${`msg ${m.source === 'error' ? 'error' : ''} ${mine ? 'mine' : ''} ${relay ? 'relay' : ''} ${continued ? 'continued' : ''} ${open ? 'open' : ''} ${pending ? 'pending' : ''} ${long && !expanded ? 'folded' : ''}`}
+      style=${relay ? `--who: ${senderColor(m.from_name)}` : undefined} onClick=${toggle} ref=${self}>
     <div class="gutter">
       <span class="who">${relay ? '' : who}</span>
       <span title=${new Date(m.ts).toLocaleString()}>${clock(m.ts)}</span>
@@ -90,6 +100,7 @@ export function Message({ m, context, continued, onQuote }) {
     <div class="content">
       ${relay && html`<div class="route">${m.from_name} → ${m.to_name}</div>`}
       ${m.body && html`<div class="md" data-base=${mine ? m.to_name : m.from_name} dangerouslySetInnerHTML=${{ __html: markdown(m.body) }}></div>`}
+      ${long && html`<button class="act more" onClick=${e => { e.stopPropagation(); setExpanded(!expanded) }}>${expanded ? 'less' : 'more'}</button>`}
       <${Attachments} list=${m.attachments} />
       ${recapOf(m) && html`<${RecapLine} recap=${recapOf(m)} session=${m.from_name} />`}
       ${metaOf(m).redacted?.length > 0 && html`<div class="redacted-note" title="Kept out of Neural's history and search. A session it was sent to received it as written.">

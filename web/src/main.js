@@ -9,6 +9,7 @@ import { Home, Sessions } from './views/Home.js'
 import { Session } from './views/Session.js'
 import { Timeline, Search } from './views/Lists.js'
 import { setupPush } from './push.js'
+import { Skeleton } from './components/parts.js'
 import { viewportInfo, toggleViewportInfo } from './viewport.js'
 import { connect, loaded, route, paletteOpen, totalUnread } from './store.js'
 
@@ -31,7 +32,7 @@ function App() {
     document.title = n ? `(${n}) Neural` : 'Neural'
   }, [totalUnread.value])
 
-  const view = !loaded.value ? html`<div class="scroll"><div class="empty">Connecting…</div></div>`
+  const view = !loaded.value ? html`<div class="scroll"><div class="page"><${Skeleton} n=${5} /></div></div>`
     : r.view === 'session' ? html`<${Session} key=${r.name} />`
     : r.view === 'timeline' ? html`<${Timeline} />`
     : r.view === 'search' ? html`<${Search} key=${r.q} />`

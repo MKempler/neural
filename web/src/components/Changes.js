@@ -4,6 +4,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { html, api, ago } from '../lib.js'
 import { Icon } from '../icons.js'
 import { navigate, sessionPath, sendNow } from '../store.js'
+import { Skeleton } from './parts.js'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -33,7 +34,7 @@ export function Changes({ s }) {
   useEffect(() => { load() }, [s.name, s.status])
 
   if (error && !data) return html`<div class="empty">Couldn't read the repository: ${error}</div>`
-  if (data === null) return html`<div class="empty">Loading…</div>`
+  if (data === null) return html`<${Skeleton} kind="chat" n=${3} />`
   if (data === false) return html`<div class="empty"><span class="mono">${s.cwd}</span> isn't in a git repository, so there are no changes to show.</div>`
 
   const { branch, upstream, ahead, behind, files, commits } = data

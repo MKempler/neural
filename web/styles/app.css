@@ -39,7 +39,7 @@
 .rail-sessions { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 10px; display: grid; align-content: start; gap: 1px; }
 .rail-session { align-items: flex-start; }
 .rail-session .dot { margin-top: 6px; }
-.rail-session .main, .switcher .item .main { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.rail-session .main, .srow .main { min-width: 0; flex: 1; display: grid; gap: 2px; }
 .rail-session .name { font-family: var(--sans); font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-session .sub { font-size: var(--fs-xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-end { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; }
@@ -47,8 +47,8 @@
 .rail-session .row-end { margin-top: 3px; }
 .sub.tool { font-size: var(--fs-xs); color: var(--text-3); opacity: 0.8; }
 /* Waiting on Max: amber dot and a faint amber tint, the one row the eye should find. */
-.rail-session.waiting, .switcher .item.waiting { background: var(--warn-tint); }
-.rail-session.waiting .sub, .switcher .item.waiting .sub { color: var(--warn); }
+.rail-session.waiting, .srow.waiting { background: var(--warn-tint); }
+.rail-session.waiting .sub, .srow.waiting .sub { color: var(--warn); }
 .rail-foot { border-top: 1px solid var(--line); padding: 10px; display: grid; gap: 6px; }
 .conn { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font: var(--fs-xs)/1.4 var(--sans); color: var(--text-3); }
 .conn .host { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -342,7 +342,9 @@ kbd {
 .msg.continued .who { display: none; }
 .msg .content { min-width: 0; }
 .msg.mine .content .md { padding: 9px 13px; border-radius: var(--r-card); background: var(--surface-2); border: 1px solid var(--line); }
-.msg.relay .content { padding-left: 12px; border-left: 2px solid var(--line-strong); }
+.msg.relay .content { padding-left: 12px; border-left: 2px solid var(--who, var(--line-strong)); }
+.msg.relay.folded .md { max-height: 9.6em; overflow: hidden; mask-image: linear-gradient(to bottom, #000 60%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent); }
+.msg.relay .act.more { margin-top: 2px; padding: 2px 0; border: 0; background: none; color: var(--text-3); font: 500 var(--fs-xs)/1.4 var(--sans); }
 .msg.relay .route { font: var(--fs-xs)/1.5 var(--sans); color: var(--text-3); margin-bottom: 2px; }
 .msg .foot { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 10px; font: 11px/1.4 var(--sans); color: var(--text-3); }
 .msg .foot .bad { color: var(--bad); }
@@ -714,13 +716,20 @@ button.result:hover { background: var(--surface-2); }
 }
 
 .switcher .list { overflow-y: auto; padding: 6px; }
-.switcher .item {
+/* A session row: the switcher sheet and the phone Sessions tab share it. */
+.srow {
   display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 10px; border: 0; border-radius: var(--r);
-  background: none; text-align: left;
+  background: none; text-align: left; color: inherit; text-decoration: none;
 }
-.switcher .item.sel { background: var(--surface-3); }
-.switcher .item .txt { font-size: var(--fs-lg); font-weight: 600; }
-.switcher .item .sub { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow.sel { background: var(--surface-3); }
+.srow .txt { font-size: var(--fs-lg); font-weight: 600; }
+.srow .sub { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-rows { display: grid; gap: 1px; margin-bottom: 12px; }
+.session-rows .srow { align-items: flex-start; }
+.session-rows .srow .dot { margin-top: 7px; }
+.session-rows .srow .row-end { margin-top: 4px; }
+.session-rows .srow .sub:not(.tool) { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.session-rows .new { justify-content: center; gap: 8px; color: var(--text-2); border: 1px dashed var(--line); margin-top: 6px; }
 .switcher .sheet-foot { justify-content: space-between; }
 
 .session-head.compact { gap: 4px; padding: 6px 6px 6px 4px; padding-top: max(6px, env(safe-area-inset-top)); flex-wrap: nowrap; }
@@ -758,8 +767,8 @@ button.result:hover { background: var(--surface-2); }
   .msg.mine .attachments { justify-items: end; }
   /* Claude's: full width, no bubble */
   .msg:not(.mine):not(.relay) .md { font-size: 16px; line-height: 1.6; }
-  /* Between sessions: small dashed card */
-  .msg.relay .content { padding: 8px 12px; border: 1px dashed var(--line-strong); border-left: 1px dashed var(--line-strong); border-radius: 12px; }
+  /* Between sessions: a hairline rule in the sender's colour */
+  .msg.relay .content { padding: 2px 0 2px 12px; border-left: 2px solid var(--who, var(--line-strong)); }
   .msg.relay .md { font-size: 14px; color: var(--text-2); }
   .msg .foot { display: none; margin-top: 6px; }
   .msg.open .foot, .msg.pending .foot, .msg.mine .foot:has(.accent, .bad) { display: flex; }
@@ -1007,4 +1016,47 @@ summary.job-group-h { cursor: pointer; }
   .overlay:has(.file-view) { padding: 0; }
   .file-view { width: 100%; border: 0; border-radius: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
   .file-md { padding: 14px 14px 28px; }
+}
+
+/* Loading placeholders (parts.js Skeleton). */
+.skeleton { display: grid; gap: 1px; padding: 6px 0; }
+.skel-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 10px; }
+.skel-lines { flex: 1; display: grid; gap: 10px; }
+.skel { display: block; height: 10px; border-radius: 5px; background: var(--surface-3); animation: skel 1.4s ease-in-out infinite; }
+.skel.dot-skel { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 2px; }
+.skeleton.chat .skel-row { padding: 12px 0; }
+.skeleton.chat .skel-lines .skel:first-child { height: 8px; }
+.skeleton.chat .skel-lines .skel:last-child { height: 34px; border-radius: var(--r); }
+@keyframes skel { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+/* Search before a query: recent searches and examples to tap. */
+.search-start { display: grid; gap: 18px; padding: 20px 2px; }
+.search-start .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.search-start .hint { color: var(--text-3); font-size: var(--fs-sm); }
+
+/* Phone Home: Needs you, the composer, then sessions (working ones first); usage folds to one line
+   below them, and moves to the top in amber past 80%. */
+.usage-line { display: none; }
+@media (max-width: 860px) {
+  .page.home { display: flex; flex-direction: column; }
+  .page.home > * { order: 6; }
+  .page.home > .greeting { order: 0; }
+  .page.home > .usage-wrap.hot { order: 1; }
+  .page.home > .needs { order: 2; }
+  .page.home > .quick { order: 3; }
+  .page.home > .home-sessions { order: 4; }
+  .page.home > .usage-wrap { order: 5; margin-top: 28px; }
+  .page.home > .usage-wrap.hot { margin-top: 14px; }
+  .page.home .home-sessions .card[data-status='working'] { order: -1; }
+  .usage-line {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 0; border: 0; background: none;
+    font: var(--fs-sm)/1.4 var(--sans); color: var(--text-3); text-align: left;
+  }
+  .usage-line span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usage-line svg { flex: none; transition: transform var(--t) var(--ease); }
+  .usage-wrap.open .usage-line svg { transform: rotate(180deg); }
+  .usage-wrap.hot .usage-line { color: var(--warn); }
+  .usage-wrap:not(.open) .usage { display: none; }
+  .usage-wrap .usage { margin-top: 6px; }
 }

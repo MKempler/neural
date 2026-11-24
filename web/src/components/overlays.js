@@ -37,7 +37,7 @@ export function SessionSwitcher() {
       <div class="list">
         ${waitingFirst(sessionList.value).map(s => {
           const row = rowOf(s)
-          return html`<button class=${`item ${row.waiting ? 'waiting' : ''} ${s.name === current ? 'sel' : ''}`} key=${s.name} onClick=${() => go(s.name)}>
+          return html`<button class=${`item srow ${row.waiting ? 'waiting' : ''} ${s.name === current ? 'sel' : ''}`} key=${s.name} onClick=${() => go(s.name)}>
             <${Dot} status=${row.dot} />
             <span class="main"><span class="txt">${s.name}</span>
               <span class="sub">${row.line}</span>

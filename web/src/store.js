@@ -27,6 +27,8 @@ export const switcherOpen = signal(false)
 export const modelSheet = signal(null)
 /** Messages shown before the server has them: sending, queued while offline, or failed. Kept across reloads. */
 export const pendingSends = signal(local.get('neural.pending', []).map(p => ({ ...p, delivery: p.delivery === 'sending' ? 'queued' : p.delivery })))
+/** The read-only file viewer: { path, line?, base?, back: [{ path, base }] } or null. */
+export const fileView = signal(null)
 export const lightbox = signal(/** @type {null | { items: any[], index: number }} */ (null))
 
 export const sessionList = computed(() => {
@@ -238,7 +240,7 @@ function noteVersion(v) {
 function quiet() {
   const el = document.activeElement
   const typing = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable)
-  const overlay = paletteOpen.value || newSessionOpen.value || switcherOpen.value || modelSheet.value || lightbox.value
+  const overlay = paletteOpen.value || newSessionOpen.value || switcherOpen.value || modelSheet.value || lightbox.value || fileView.value
   const uploading = document.querySelector('.tile.uploading, .tile.processing')
   return !typing && !overlay && !uploading
 }

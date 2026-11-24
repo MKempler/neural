@@ -89,7 +89,7 @@ export function Message({ m, context, continued, onQuote }) {
     </div>
     <div class="content">
       ${relay && html`<div class="route">${m.from_name} → ${m.to_name}</div>`}
-      ${m.body && html`<div class="md" dangerouslySetInnerHTML=${{ __html: markdown(m.body) }}></div>`}
+      ${m.body && html`<div class="md" data-base=${mine ? m.to_name : m.from_name} dangerouslySetInnerHTML=${{ __html: markdown(m.body) }}></div>`}
       <${Attachments} list=${m.attachments} />
       ${recapOf(m) && html`<${RecapLine} recap=${recapOf(m)} session=${m.from_name} />`}
       ${metaOf(m).redacted?.length > 0 && html`<div class="redacted-note" title="Kept out of Neural's history and search. A session it was sent to received it as written.">

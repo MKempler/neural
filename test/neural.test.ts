@@ -1646,3 +1646,53 @@ test('keysForOption picks the right keys for a select dialog', async () => {
   assert.equal(keysForOption(trust, /Maybe later/), null)
   assert.equal(keysForOption('nothing here', want), null)
 })
+
+test('the file viewer shows files under known folders and nothing else', async () => {
+  const { sessions } = await import('../server/src/db.ts')
+  const dir = path.join(tmp, 'viewer')
+  fs.mkdirSync(path.join(dir, 'docs'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'docs/notes.md'), '# Notes\n\nkey sk-ant-api03-' + 'a'.repeat(90) + '\n')
+  fs.writeFileSync(path.join(dir, 'app.ts'), 'const x = 1\n')
+  fs.writeFileSync(path.join(dir, '.env'), 'TOKEN=1\n')
+  fs.writeFileSync(path.join(dir, 'pic.png'), Buffer.from('89504e470d0a1a0a', 'hex'))
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'neural-outside-'))
+  fs.writeFileSync(path.join(outside, 'x.txt'), 'private\n')
+  fs.symlinkSync(path.join(outside, 'x.txt'), path.join(dir, 'link.txt'))
+  const view = (p: string, b?: string) => api('GET', `/api/view?${new URLSearchParams(b ? { path: p, base: b } : { path: p })}`)
+
+  const md = await view(path.join(dir, 'docs/notes.md'))
+  assert.equal(md.status, 200)
+  assert.equal(md.body.kind, 'markdown')
+  assert.match(md.body.text, /# Notes/)
+  assert.doesNotMatch(md.body.text, /a{90}/, 'a secret in the file is redacted')
+  assert.equal(md.body.redacted, 1)
+  const code = await view(path.join(dir, 'app.ts'))
+  assert.deepEqual([code.body.kind, code.body.lang], ['code', 'js'])
+
+  // A relative path resolves against the session it was mentioned by.
+  const s = sessions.all().find(x => x.cwd && fs.existsSync(x.cwd))!
+  fs.writeFileSync(path.join(s.cwd, 'rel-view.txt'), 'hello\n')
+  const rel = await view('rel-view.txt', s.name)
+  assert.equal(rel.status, 200)
+  assert.equal(rel.body.text, 'hello\n')
+  assert.equal((await view('rel-view.txt')).status, 400, 'a relative path without a session')
+
+  assert.equal((await view(path.join(outside, 'x.txt'))).status, 403, 'outside the roots')
+  assert.equal((await view(path.join(dir, '../../', path.basename(outside), 'x.txt'))).status, 403)
+  assert.equal((await view(`${dir}/../${path.relative(path.dirname(dir), outside)}/x.txt`)).status, 403, '../ traversal')
+  assert.equal((await view(path.join(dir, 'link.txt'))).status, 403, 'a symlink pointing outside')
+  assert.equal((await view(path.join(dir, '.env'))).status, 403, 'secret files')
+  assert.equal((await view(path.join(dir, 'missing.md'))).status, 404)
+
+  const folder = await view(dir)
+  assert.equal(folder.body.kind, 'folder')
+  assert.deepEqual(folder.body.entries.map((e: any) => e.name), ['docs', 'app.ts', 'link.txt', 'pic.png'])
+
+  const png = await fetch(`${base}/api/view/raw?${new URLSearchParams({ path: path.join(dir, 'pic.png') })}`)
+  assert.equal(png.status, 200)
+  assert.equal(png.headers.get('content-type'), 'image/png')
+  assert.equal((await png.arrayBuffer()).byteLength, 8)
+  const raw = await fetch(`${base}/api/view/raw?${new URLSearchParams({ path: path.join(dir, 'docs/notes.md') })}`)
+  assert.equal(raw.status, 415, 'only images are served raw')
+  fs.rmSync(outside, { recursive: true, force: true })
+})

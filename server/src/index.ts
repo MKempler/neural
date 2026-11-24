@@ -15,6 +15,7 @@ import {
 import { ingestAll, seedModels, compressOldRaw } from './ingest.ts'
 import * as push from './push.ts'
 import * as terminal from './terminal.ts'
+import * as fileview from './fileview.ts'
 import { receiveUpload, publicView, getAttachment, serveFile, cleanUnsent } from './files.ts'
 import { backupNow, listBackups } from './backup.ts'
 import * as git from './git.ts'
@@ -294,6 +295,8 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
     case 'POST upload':
       return publicView(await receiveUpload(req))
 
+    case 'GET view': // a file tapped in a message, read-only: ?path=...&base=<session for relative paths>
+      return fileview.view(url.searchParams.get('path') ?? '', url.searchParams.get('base') ?? undefined)
     case 'GET search':
       return searchAll(url.searchParams.get('q') ?? '', {
         session: url.searchParams.get('session') ?? undefined,
@@ -383,6 +386,10 @@ const server = http.createServer(async (req, res) => {
       const a = getAttachment(Number(file[1]))
       if (!a) throw new HttpError(404, 'not found')
       serveFile(req, res, a, file[2])
+      return
+    }
+    if (url.pathname === '/api/view/raw' && req.method === 'GET') {
+      fileview.serveRaw(res, url.searchParams.get('path') ?? '', url.searchParams.get('base') ?? undefined)
       return
     }
     if (url.pathname.startsWith('/api/')) {

@@ -121,9 +121,61 @@ export function markdown(text) {
   const out = clean
     .replace(/<pre>/g, '<div class="code"><button type="button" class="btn sm copy" data-copy>Copy</button><pre>')
     .replace(/<\/pre>/g, '</pre></div>')
+  const linked = linkPaths(out)
   if (cache.size > 500) cache.clear()
-  cache.set(text, out)
-  return out
+  cache.set(text, linked)
+  return linked
+}
+
+// File paths in a message open the read-only file viewer: absolute or ~/ paths with an extension anywhere in the
+// text; in inline code also folders and relative paths with a folder (server/x.ts, resolved against the session's
+// folder). A trailing :line jumps to that line.
+const PATH_IN_TEXT = /(^|[\s(\[{"'<>,;])((?:~\/|\/)(?:[\w.@+-]+\/)+[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,10})(?::(\d+)(?::\d+)?)?/g
+const PATH_IN_CODE = /^((?:~\/|\/)?(?:[\w.@+-]+\/)+[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,10}|(?:~\/|\/)(?:[\w.@+-]+\/)+[\w.@+-]+)(?::(\d+)(?::\d+)?)?$/
+function linkPaths(markup) {
+  if (!markup.includes('/')) return markup
+  const tpl = document.createElement('template')
+  tpl.innerHTML = markup
+  let changed = false
+  for (const code of tpl.content.querySelectorAll('code')) {
+    if (code.closest('pre, a')) continue
+    const m = PATH_IN_CODE.exec(code.textContent.trim())
+    if (!m || m[1].startsWith('//')) continue
+    code.classList.add('path')
+    code.dataset.path = m[1]
+    if (m[2]) code.dataset.line = m[2]
+    code.setAttribute('role', 'link')
+    code.tabIndex = 0
+    changed = true
+  }
+  const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT)
+  const texts = []
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeValue.includes('/') && !n.parentElement?.closest('a, code, pre')) texts.push(n)
+  }
+  for (const node of texts) {
+    const value = node.nodeValue
+    const frag = document.createDocumentFragment()
+    let last = 0
+    for (const m of value.matchAll(PATH_IN_TEXT)) {
+      const start = m.index + m[1].length
+      frag.append(value.slice(last, start))
+      const link = document.createElement('span')
+      link.className = 'path'
+      link.dataset.path = m[2]
+      if (m[3]) link.dataset.line = m[3]
+      link.setAttribute('role', 'link')
+      link.tabIndex = 0
+      link.textContent = value.slice(start, m.index + m[0].length)
+      frag.append(link)
+      last = m.index + m[0].length
+    }
+    if (!last) continue
+    frag.append(value.slice(last))
+    node.replaceWith(frag)
+    changed = true
+  }
+  return changed ? tpl.innerHTML : markup
 }
 
 // One listener handles every copy button.

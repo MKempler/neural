@@ -937,3 +937,48 @@ button.result:hover { background: var(--surface-2); }
 .job-detail .actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 .card-note { margin: 0; padding: 4px 8px; border-radius: var(--r); background: var(--accent-tint); color: var(--text); font-size: var(--fs-sm); line-height: 1.4; overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------------------------------------- */
+/* File viewer                                                                                   */
+
+.md .path { cursor: pointer; text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; }
+.md .path:hover, .md .path:focus-visible { color: var(--accent); text-decoration-color: var(--accent); }
+.overlay:has(.file-view) { padding: 4vh 16px; align-items: stretch; }
+.file-view {
+  width: min(900px, 100%); margin: 0 auto; display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+.file-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.file-title { flex: 1; min-width: 0; }
+.file-title strong { font: 600 var(--fs-md)/1.3 var(--mono); }
+.file-meta { font: var(--fs-xs)/1.4 var(--mono); color: var(--text-3); }
+.file-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.file-note { margin: 0; padding: 8px 16px; font-size: var(--fs-sm); color: var(--text-2); border-bottom: 1px solid var(--line); }
+.file-md { padding: 16px 20px 32px; }
+.file-code { padding: 8px 0 24px; font: 12.5px/1.55 var(--mono); color: var(--text); width: max-content; min-width: 100%; }
+.file-code .ln { white-space: pre; padding: 0 16px 0 0; }
+.file-code .ln::before {
+  content: attr(data-ln); display: inline-block; width: var(--gutter); margin-right: 14px; padding-right: 6px;
+  text-align: right; color: var(--text-3); user-select: none; position: sticky; left: 0; background: var(--surface);
+}
+.file-code .ln.hit, .file-code .ln.hit::before { background: var(--accent-tint); }
+.t-c { color: var(--text-3); font-style: italic; }
+.t-s { color: var(--accent); }
+.t-n { color: var(--warn); }
+.t-k { color: var(--text-2); font-weight: 600; }
+.file-image { padding: 16px; display: flex; justify-content: center; }
+.file-image img { max-width: 100%; height: auto; border-radius: var(--r); }
+.file-list { list-style: none; margin: 0; padding: 6px; }
+.file-list button {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-radius: var(--r);
+  background: none; color: var(--text); font: var(--fs-sm)/1.3 var(--mono); text-align: left; cursor: pointer;
+}
+.file-list button:hover, .file-list button:focus-visible { background: var(--surface-2); }
+.file-list .icon { color: var(--text-3); flex: none; }
+.file-size { margin-left: auto; color: var(--text-3); font-size: var(--fs-xs); flex: none; }
+@media (max-width: 860px) {
+  .overlay:has(.file-view) { padding: 0; }
+  .file-view { width: 100%; border: 0; border-radius: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .file-md { padding: 14px 14px 28px; }
+}

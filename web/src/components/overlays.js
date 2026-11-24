@@ -1,8 +1,8 @@
 // The ⌘K palette and the New session sheet.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { html, api, shortPath, ago, local, unmark, excerpt, modelLabel } from '../lib.js'
+import { html, api, shortPath, ago, local, unmark, modelLabel } from '../lib.js'
 import { Icon } from '../icons.js'
-import { Dot, useAutosize } from './parts.js'
+import { Dot, RowEnd, rowOf, useAutosize, waitingFirst } from './parts.js'
 import { Highlight } from '../views/Lists.js'
 import {
   switcherOpen, totalUnread, lightbox, paletteOpen, modelSheet, sendNow, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
@@ -35,12 +35,16 @@ export function SessionSwitcher() {
       <div class="sheet-head"><h2>Sessions</h2>
         <button class="btn ghost icon-only" aria-label="Close" onClick=${close}><${Icon} name="x" /></button></div>
       <div class="list">
-        ${sessionList.value.map(s => html`<button class=${`item ${s.name === current ? 'sel' : ''}`} key=${s.name} onClick=${() => go(s.name)}>
-          <${Dot} status=${s.status} />
-          <span class="main"><span class="txt mono">${s.name}</span>
-            <span class="sub">${s.status === 'blocked' ? 'Needs your approval' : s.status === 'working' && s.activity ? s.activity.text : s.last_message ? excerpt(s.last_message) : shortPath(s.cwd, 40)}</span></span>
-          ${s.unread > 0 && html`<span class="badge">${s.unread}</span>`}
-        </button>`)}
+        ${waitingFirst(sessionList.value).map(s => {
+          const row = rowOf(s)
+          return html`<button class=${`item ${row.waiting ? 'waiting' : ''} ${s.name === current ? 'sel' : ''}`} key=${s.name} onClick=${() => go(s.name)}>
+            <${Dot} status=${row.dot} />
+            <span class="main"><span class="txt mono">${s.name}</span>
+              <span class="sub">${row.line}</span>
+              ${row.tool && html`<span class="sub tool">${row.tool}</span>`}</span>
+            <${RowEnd} s=${s} r=${row} />
+          </button>`
+        })}
       </div>
       <div class="sheet-foot">
         <button class="btn ghost" onClick=${() => { close(); navigate('/') }}><${Icon} name="home" />Home</button>

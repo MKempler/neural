@@ -1,11 +1,35 @@
 // Small building blocks shared by the views.
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { html, STATUS, tilde } from '../lib.js'
+import { html, STATUS, tilde, ago, excerpt, shortPath } from '../lib.js'
 import { Icon } from '../icons.js'
-import { decide, navigate, sessionPath } from '../store.js'
+import { decide, navigate, sessionPath, questions } from '../store.js'
 
 export function Dot({ status }) {
   return html`<span class=${`dot ${status}`} aria-hidden="true"></span>`
+}
+
+/**
+ * What a session's row in the switcher and the sidebar shows: whether it waits on Max, the line under
+ * its name (the status note when it is newer than the last message, otherwise that message), the time
+ * that line is from, and the current tool while it works.
+ */
+export function rowOf(s) {
+  const asked = !['stopped', 'exited'].includes(s.status) && questions.value.some(q => q.session === s.name)
+  const waiting = ['blocked', 'attention'].includes(s.status) || asked
+  const m = s.last_message
+  const noteNewer = !!s.note && (!m || Date.parse(s.note_at) > Date.parse(m.ts))
+  const line = s.status === 'blocked' ? 'Needs your approval' : asked ? 'Asked you a question'
+    : s.status === 'attention' ? 'Needs attention' : noteNewer ? s.note : m ? excerpt(m) : shortPath(s.cwd, 40)
+  const at = noteNewer ? s.note_at : m?.ts ?? s.created_at
+  return { waiting, dot: waiting ? 'blocked' : s.status, line, age: ago(at), tool: s.status === 'working' && !waiting ? s.activity?.text : null }
+}
+
+/** Sessions waiting on Max go to the top; the rest keep their order. */
+export const waitingFirst = list => [...list].sort((a, b) => rowOf(b).waiting - rowOf(a).waiting)
+
+/** Age and unread count, on the right of a session row. */
+export function RowEnd({ s, r }) {
+  return html`<span class="row-end">${r.age && html`<span class="age">${r.age}</span>`}${s.unread > 0 && html`<span class="badge">${s.unread}</span>`}</span>`
 }
 
 export function StatusPill({ status, background }) {

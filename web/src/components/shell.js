@@ -1,7 +1,7 @@
 // App chrome: the rail on wide screens, the top bar and tab bar on phones, and the connection strip.
 import { html } from '../lib.js'
 import { Icon, Glyph } from '../icons.js'
-import { Dot, Link } from './parts.js'
+import { Dot, Link, RowEnd, rowOf, waitingFirst } from './parts.js'
 import { toggleViewportInfo } from '../viewport.js'
 import {
   connected, route, sessionList, totalUnread, paletteOpen, newSessionOpen, navigate, sessionPath,
@@ -35,11 +35,15 @@ export function Rail() {
     </div>
     <div class="rail-section"><span class="label">Sessions</span><span class="label">${list.length}</span></div>
     <div class="rail-sessions">
-      ${list.map(s => html`<${Link} href=${sessionPath(s.name)}
-          class=${`nav-item rail-session ${r.view === 'session' && r.name === s.name ? 'active' : ''}`}>
-        <${Dot} status=${s.status} /><span class="name">${s.name}</span>
-        ${s.unread > 0 && html`<span class="end badge">${s.unread}</span>`}
-      </${Link}>`)}
+      ${waitingFirst(list).map(s => {
+        const row = rowOf(s)
+        return html`<${Link} href=${sessionPath(s.name)} key=${s.name}
+            class=${`nav-item rail-session ${row.waiting ? 'waiting' : ''} ${r.view === 'session' && r.name === s.name ? 'active' : ''}`}>
+          <${Dot} status=${row.dot} />
+          <span class="main"><span class="name">${s.name}</span><span class="sub">${row.line}</span></span>
+          <${RowEnd} s=${s} r=${row} />
+        </${Link}>`
+      })}
     </div>
     <div class="rail-foot">
       <button class="btn block" onClick=${() => (newSessionOpen.value = true)}><${Icon} name="plus" />New session</button>

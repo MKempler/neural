@@ -37,7 +37,18 @@
 .rail-section { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 6px; }
 .label { font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
 .rail-sessions { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 10px; display: grid; align-content: start; gap: 1px; }
+.rail-session { align-items: flex-start; }
+.rail-session .dot { margin-top: 6px; }
+.rail-session .main, .switcher .item .main { min-width: 0; flex: 1; display: grid; gap: 2px; }
 .rail-session .name { font-family: var(--mono); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-session .sub { font-size: var(--fs-xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-end { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.row-end .age { font: var(--fs-xs)/1 var(--mono); color: var(--text-3); }
+.rail-session .row-end { margin-top: 3px; }
+.sub.tool { font-size: var(--fs-xs); color: var(--text-3); opacity: 0.8; }
+/* Waiting on Max: amber dot and a faint amber tint, the one row the eye should find. */
+.rail-session.waiting, .switcher .item.waiting { background: var(--warn-tint); }
+.rail-session.waiting .sub, .switcher .item.waiting .sub { color: var(--warn); }
 .rail-foot { border-top: 1px solid var(--line); padding: 10px; display: grid; gap: 6px; }
 .conn { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font: var(--fs-xs)/1.4 var(--mono); color: var(--text-3); }
 .conn .host { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -103,7 +114,12 @@ kbd {
 
 /* Status: dot and pill */
 .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
-.dot.working { background: var(--accent); animation: pulse 1.6s var(--ease) infinite; }
+.dot.working { position: relative; background: var(--accent); }
+/* Working: a ring ripples out from a solid dot, so the dot itself never dims to look idle. */
+.dot.working::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--accent);
+  animation: ripple 1.6s ease-out infinite;
+}
 .dot.idle { background: var(--text-3); }
 .dot.blocked, .dot.attention, .dot.limited { background: var(--warn); }
 .dot.starting { background: none; box-shadow: inset 0 0 0 1.5px var(--warn); }
@@ -112,6 +128,7 @@ kbd {
 .dot.online { background: var(--accent); }
 .dot.offline { background: var(--warn); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes ripple { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.6); opacity: 0; } }
 
 .pill {
   display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 9px 0 8px;
@@ -699,7 +716,6 @@ button.result:hover { background: var(--surface-2); }
   background: none; text-align: left;
 }
 .switcher .item.sel { background: var(--surface-3); }
-.switcher .item .main { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .switcher .item .txt { font-size: var(--fs-lg); }
 .switcher .item .sub { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .switcher .sheet-foot { justify-content: space-between; }

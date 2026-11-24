@@ -58,13 +58,14 @@ const TOOLS = [
 ]
 
 const ORCHESTRATOR_TOOLS = [
-  tool('spawn_session', 'Start a new Claude Code session in its own terminal. It is ready a few seconds later; messages sent before then are queued. Give cwd for an existing folder; or new_project to create a new project folder (with git) named after the session in the projects folder; or clone to clone a GitHub repository there first.', {
+  tool('spawn_session', 'Start a new Claude Code session in its own terminal. It is ready a few seconds later; messages sent before then are queued. Give cwd for an existing folder; or new_project to create a new project folder (with git) named after the session in the projects folder; or clone to clone a GitHub repository there first. Add worktree to give it its own branch and checkout.', {
     name: str('Short unique name: lowercase letters, digits, - or _'),
     template: str('A role template (list_templates) whose settings and starting instructions it gets; anything else given here overrides them'),
     cwd: str('Absolute path of the directory it works in (an existing folder)'),
     new_project: { type: 'boolean', description: 'Create a new project folder named after the session, with git, in the projects folder (~/Projects unless configured), and work there' },
     github_repo: { type: 'boolean', description: 'With new_project: also create a private GitHub repository for it as origin. Only when the user asked for one' },
     clone: str('owner/name of a GitHub repository to clone into the projects folder and work in'),
+    worktree: { type: ['boolean', 'string'], description: 'Work in its own git worktree of the repository at cwd (or the clone): true for a new branch neural/<name>, or a branch name (checked out if it exists, else created from HEAD). It lives in <repo>/.claude/worktrees/<name>; stop_session removes it when nothing in it is uncommitted, and the branch stays. Use it when several sessions work on one repository' },
     initial_prompt: str('First message to send it'),
     model: str('Model to run it on, kept across restarts: an alias (sonnet, opus, haiku) or a full model name. Default: Claude Code\'s default. A cheaper model saves quota for routine work'),
     effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'Effort level, kept across restarts (default: Claude Code\'s default)' },
@@ -98,7 +99,7 @@ const ORCHESTRATOR_TOOLS = [
     name: str('Session name'),
     priority: { type: 'string', enum: ['high', 'normal', 'low'] },
   }, ['name', 'priority']),
-  tool('stop_session', 'Stop a session. Its conversation is kept and restart_session resumes it.', { name: str('Session name') }, ['name']),
+  tool('stop_session', 'Stop a session. Its conversation is kept and restart_session resumes it. A worktree spawn_session made for it is removed if nothing in it is uncommitted (its branch stays; the result says which).', { name: str('Session name') }, ['name']),
   tool('restart_session', 'Restart a session, resuming its conversation.', { name: str('Session name') }, ['name']),
   tool('read_screen', "Read what is on a session's terminal right now, for when it is stuck or not answering.", {
     name: str('Session name'),

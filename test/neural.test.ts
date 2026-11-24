@@ -1229,6 +1229,49 @@ test('role templates preset a spawned session, and the orchestrator can list and
   await idle('main')
 })
 
+test('spawn_session gives a worker its own git worktree, and stop_session removes it only when clean', async () => {
+  await idle('main')
+  const tool = async (name: string, args: unknown) => {
+    const sent = await say('main', `tool ${name} ${JSON.stringify(args)}`)
+    return (await messageWhere(`${name} result`, m => m.from_name === 'main' && m.in_reply_to === sent.id)).body as string
+  }
+  const repo = path.join(tmp, 'wt-repo')
+  fs.mkdirSync(repo)
+  const g = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, encoding: 'utf8' })
+  g('init', '-q', '-b', 'main')
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n')
+  g('add', '.'); g('commit', '-qm', 'one')
+  assert.match(await tool('spawn_session', { name: 'wa', cwd: tmp, worktree: true }), /^ERROR worktree needs a git repository/)
+  assert.match(await tool('spawn_session', { name: 'wa', cwd: repo, worktree: 'bad..name' }), /^ERROR "bad\.\.name" isn't a valid branch name/)
+  const started = JSON.parse(await tool('spawn_session', { name: 'wa', cwd: repo, worktree: true }))
+  const wa = path.join(repo, '.claude', 'worktrees', 'wa')
+  assert.equal(fs.realpathSync(started.cwd), fs.realpathSync(wa))
+  assert.equal(started.branch, 'neural/wa')
+  assert.equal(fs.readFileSync(path.join(wa, 'a.txt'), 'utf8'), 'a\n')
+  assert.equal(g('status', '--porcelain'), '') // the main checkout doesn't see the worktrees folder
+  await tool('spawn_session', { name: 'wb', cwd: repo, worktree: 'feature-x' })
+  const wb = path.join(repo, '.claude', 'worktrees', 'wb')
+  await idle('wa'); await idle('wb')
+  fs.writeFileSync(path.join(wb, 'b.txt'), 'work\n') // wb has uncommitted work
+  const stopA = JSON.parse(await tool('stop_session', { name: 'wa' }))
+  assert.equal(stopA.worktree.removed, true)
+  assert.equal(fs.existsSync(wa), false)
+  assert.match(g('branch', '--list', 'neural/wa'), /neural\/wa/) // the branch stays
+  const stopB = JSON.parse(await tool('stop_session', { name: 'wb' }))
+  assert.equal(stopB.worktree.removed, false)
+  assert.match(stopB.worktree.reason, /1 uncommitted change; kept/)
+  assert.equal(fs.existsSync(path.join(wb, 'b.txt')), true)
+  assert.match(await tool('restart_session', { name: 'wa' }), /^ERROR its worktree .* was removed when it stopped/)
+  // An existing branch is checked out again.
+  const again = JSON.parse(await tool('spawn_session', { name: 'wa', cwd: repo, worktree: 'neural/wa' }))
+  assert.equal(again.branch, 'neural/wa')
+  const { removeSession } = await import('../server/src/spawner.ts')
+  await idle('wa')
+  await removeSession('wa')
+  await removeSession('wb')
+  await idle('main')
+})
+
 test('scripts and jobs send messages with `neural notify`, which needs the secret', async () => {
   const { execFile } = await import('node:child_process')
   const cli = (args: string[], input?: string) => new Promise<{ code: number; out: string; err: string }>(resolve => {

@@ -14,6 +14,7 @@ import * as clock from './clock.ts'
 import * as jobs from './jobs.ts'
 import * as handoff from './handoff.ts'
 import * as templates from './templates.ts'
+import * as worktree from './worktree.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -795,16 +796,22 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       if (a.clone) cwd = (await projects.clone(String(a.clone))).path
       else if (a.new_project) cwd = (await projects.create(String(a.name), { github: a.github_repo === true })).path
       if (!cwd) throw new Error('cwd is required (or new_project, or clone)')
+      // Its own worktree: a branch checked out in <repo>/.claude/worktrees/<name>, removed on stop when clean.
+      let tree: { path: string; branch: string } | null = null
+      if (a.worktree === true || (typeof a.worktree === 'string' && a.worktree.trim())) {
+        tree = await worktree.create(cwd, String(a.name), a.worktree === true ? true : a.worktree.trim())
+        cwd = tree.path
+      }
       await startSession(a.name, { cwd, role: 'worker', model: a.model, effort: a.effort, mcpServers: a.mcp_servers })
       if (a.priority) setPriority(a.name, a.priority)
       if (typeof a.fresh_context === 'boolean') handoff.setEnabled(a.name, a.fresh_context, a.fresh_at)
       if (a.initial_prompt) sendMessage({ from: caller, to: a.name, body: a.initial_prompt, source: 'send_message' })
-      return { started: a.name, cwd, ...(a.template ? { template: a.template } : {}), note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
+      return { started: a.name, cwd, ...(tree ? { branch: tree.branch } : {}), ...(a.template ? { template: a.template } : {}), note: 'It takes a few seconds to become ready. Messages sent now are queued and delivered once it is.' }
     }
     case 'stop_session':
       if (a.name === caller) throw new Error('refusing to stop yourself')
-      await stopSession(a.name)
-      return { stopped: a.name }
+      const tree = await stopSession(a.name)
+      return { stopped: a.name, ...(tree ? { worktree: tree } : {}) }
     case 'restart_session':
       if (a.name === caller) throw new Error('refusing to restart yourself')
       await restartSession(a.name)

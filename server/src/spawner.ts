@@ -10,6 +10,7 @@ import { Tmux } from './mux/tmux.ts'
 import type { Mux } from './mux/mux.ts'
 import * as health from './health.ts'
 import * as handoff from './handoff.ts'
+import * as worktree from './worktree.ts'
 
 export const mux: Mux = new Tmux(config.tmuxSocket)
 
@@ -272,7 +273,10 @@ export async function startSession(
   const existing = sessions.get(name)
   const cwd = opts.cwd ?? existing?.cwd
   if (!cwd) throw new Error('cwd is required for a new session')
-  if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`cwd does not exist: ${cwd}`)
+  if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+    if (cwd.endsWith(path.join('.claude', 'worktrees', name))) throw new Error(`its worktree ${cwd} was removed when it stopped; spawn it again with worktree set to its branch`)
+    throw new Error(`cwd does not exist: ${cwd}`)
+  }
   if (existing && (await mux.alive(name))) throw new Error(`session "${name}" is already running`)
   await ensureClaude()
 
@@ -426,6 +430,8 @@ export async function stopSession(name: string) {
   sessions.update(name, { ended_at: new Date().toISOString(), channel_connected: 0 })
   permissions.expire(name)
   sessionChanged(name)
+  // A worktree spawn_session made for it goes once nothing in it is uncommitted (the branch stays).
+  return worktree.release(sessions.get(name)!.cwd, name).catch(e => ({ worktree: sessions.get(name)!.cwd, removed: false, reason: String(e.message ?? e) }))
 }
 
 export async function restartSession(name: string) {

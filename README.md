@@ -93,14 +93,14 @@ which can run commands on your computer.
 
 ### Work from your phone
 
-- **Home** shows what needs you (approvals, questions, stuck or crashed sessions, unread replies), a card per
+- **Home** shows what needs you (approvals, questions, stuck or crashed sessions, replies that ask you something), a card per
   session with its state, model, status note and last message, your usage limits, scheduled jobs and recent
   activity, and a box to message `main`.
 - **Conversations** read like a chat: copy and quote on tap, photos, videos and files in both directions, a
   live line showing what the session is doing ("Running the full test suite · 0:33"), Send that turns into
   Stop while it works, drafts per session, and messages that queue while you're offline.
-- **Quick replies** above the message box when a session is waiting ("Continue", "Go ahead", "Push when tests
-  pass"): tap to send, hold to edit first. The list is shared by every device and suggests what you often send.
+- **Quick replies** above the message box when a session's last message asks you something ("Continue", "Go ahead",
+  "Push when tests pass"): tap to send, hold to edit first. The list is shared by every device and suggests what you often send.
 - **Approvals, questions and plans** arrive as cards with a notification. Allow or Deny a permission prompt,
   answer Claude's multiple-choice questions, or approve a plan; your answer is typed into the session's
   terminal, checking the screen at each step.

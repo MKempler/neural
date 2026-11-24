@@ -76,6 +76,15 @@ export function fmtBytes(n) {
 export const fmtDuration = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
 
 /** One-line preview of a message for cards and lists, including attachment-only messages. */
+/** Does a message ask something? A question mark ending a sentence in its last few lines (code left out), or
+ * an explicit ask ("want me to", "let me know which", "approve"). Reads `tail` (the end of a long preview) when present. */
+const ASK = /\b(let me know (which|what|whether|how|when)|want me to|should I|shall I|do you want|would you like|which (one|do you)|your call|ok to|okay to|approve|confirm)\b/i
+export function asksSomething(m) {
+  const text = String(m?.tail ?? m?.body ?? '').replace(/```[\s\S]*?(```|$)/g, ' ')
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean).slice(-3).join('\n')
+  return /\?(?=[\s)*_"'\]]|$)/.test(lines) || ASK.test(lines)
+}
+
 export function excerpt(m) {
   const text = plain(m?.body ?? '')
   if (text) return text

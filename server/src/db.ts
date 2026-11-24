@@ -169,7 +169,7 @@ export const messages = {
   },
 }
 
-export type Summary = { id: number; from_name: string; to_name: string; body: string; ts: string; source: string; files: number }
+export type Summary = { id: number; from_name: string; to_name: string; body: string; ts: string; source: string; files: number; tail?: string | null }
 
 export const reads = {
   /** Last message to or from a session, with the body shortened for previews. */
@@ -179,10 +179,11 @@ export const reads = {
               (SELECT count(*) FROM attachments a WHERE a.message_id = messages.id) AS files
        FROM messages WHERE id = (SELECT max(id) FROM messages WHERE from_name = ?1 OR to_name = ?1)`,
     ).get(name) ?? null,
-  /** The session's latest reply to the user, for "unread" previews. */
+  /** The session's latest reply to the user, for "unread" previews; `tail` is the end of a long body, to tell whether it asks something. */
   lastReply: (name: string) =>
     q<Summary>(
       `SELECT id, from_name, to_name, substr(body, 1, 400) AS body, ts, source,
+              CASE WHEN length(body) > 400 THEN substr(body, -300) END AS tail,
               (SELECT count(*) FROM attachments a WHERE a.message_id = messages.id) AS files
        FROM messages WHERE id = (SELECT max(id) FROM messages WHERE from_name = ?1 AND to_name = 'user')`,
     ).get(name) ?? null,

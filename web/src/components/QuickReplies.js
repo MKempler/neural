@@ -1,18 +1,18 @@
 // Quick replies: the short answers you give most ("Continue", "Go ahead"), one tap away above the message box
 // and on Home's unread cards. Tap sends; hold (or right-click) puts the text in the message box to edit first.
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { html, api } from '../lib.js'
+import { html, api, asksSomething } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Overlay } from './overlays.js'
 import { quickReplies, quickRepliesOpen, saveQuickReplies, sendNow, markRead } from '../store.js'
 
 const HOLD_MS = 450
 
-/** Is the session waiting for an answer? Idle, and the last word in the conversation is its own. */
+/** Is the session waiting for an answer? Idle, the last word in the conversation is its own, and it asks something. */
 export function awaitingReply(s, rows, pending) {
   if (!s || s.status !== 'idle' || pending.length) return false
   const last = rows?.at(-1)
-  return Boolean(last && last.from_name === s.name && last.to_name === 'user')
+  return Boolean(last && last.from_name === s.name && last.to_name === 'user' && asksSomething(last))
 }
 
 /** One chip: tap to send, hold to edit. */

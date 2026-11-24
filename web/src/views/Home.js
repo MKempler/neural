@@ -1,6 +1,6 @@
 // Home: what needs you, every session at a glance, and recent activity.
 import { useEffect, useState } from 'preact/hooks'
-import { html, ago, clock, plain, excerpt, shortPath, fmtNumber, modelChip } from '../lib.js'
+import { html, asksSomething, ago, clock, plain, excerpt, shortPath, fmtNumber, modelChip } from '../lib.js'
 import { Icon } from '../icons.js'
 import { JobsSection } from '../components/Jobs.js'
 import { Composer, Dot, DownInfo, PermissionCard, StatusPill, Link, downOf } from '../components/parts.js'
@@ -20,7 +20,8 @@ export function Home() {
   const asks = live(questions.value)
   const troubled = list.filter(s => ['attention', 'exited', 'limited'].includes(s.status) || (s.status === 'starting' && downOf(s))
     || (s.status === 'blocked' && !perms.some(p => p.session === s.name) && !asks.some(q => q.session === s.name)))
-  const unread = list.filter(s => s.unread > 0 && (s.last_reply ?? s.last_message))
+  // Needs you holds open questions and explicit asks; an unread status update stays as the card's unread badge.
+  const unread = list.filter(s => s.unread > 0 && s.last_reply && asksSomething(s.last_reply))
   const needs = perms.length + asks.length + troubled.length + unread.length
   const main = orchestrator.value
 
@@ -43,9 +44,9 @@ export function Home() {
         ${troubled.map(s => html`<${Trouble} s=${s} key=${`t${s.name}`} />`)}
         ${unread.map(s => html`<div class="alert info clickable compact" key=${`u${s.name}`} onClick=${() => navigate(sessionPath(s.name))}>
           <${Dot} status="working" />
-          <div class="truncate"><span class="who">${s.name}</span> <span class="what">${excerpt(s.last_reply ?? s.last_message)}</span></div>
+          <div class="truncate"><span class="who">${s.name}</span> <span class="what">${excerpt(s.last_reply)}</span></div>
           <div class="actions"><span class="badge">${s.unread}</span></div>
-          ${s.status === 'idle' && s.last_message?.from_name === s.name && html`<${CardReplies} s=${s} />`}
+          ${s.status === 'idle' && s.last_message?.id === s.last_reply.id && html`<${CardReplies} s=${s} />`}
         </div>`)}
       </div>
     </section>`}

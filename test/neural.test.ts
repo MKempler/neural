@@ -456,6 +456,29 @@ test('unread replies are counted on the server and cleared for every tab', async
   await idle('main')
 })
 
+test('a long reply carries its tail, so Home can tell whether it ends with a question', async () => {
+  await idle('main')
+  const long = 'x'.repeat(600) + ' Want me to push?'
+  await say('main', long)
+  const reply = await messageWhere('reply', m => m.body === `echo: ${long}`)
+  const s = await until('last reply', async () => {
+    const s = await session('main')
+    return s.last_reply?.id === reply.id ? s : null
+  })
+  assert.equal(s.last_reply.body.length, 400)
+  assert.match(s.last_reply.tail, /Want me to push\?$/)
+  assert.equal(s.last_reply.tail.length, 300)
+  await api('POST', '/api/read', { session: 'main', id: reply.id })
+  await say('main', 'short one')
+  await messageWhere('reply', m => m.body === 'echo: short one')
+  const short = await until('short reply', async () => {
+    const s = await session('main')
+    return s.last_reply?.body === 'echo: short one' ? s : null
+  })
+  assert.equal(short.last_reply.tail, null)
+  await api('POST', '/api/read', { session: 'main', id: short.last_reply.id })
+})
+
 test('app routes load the app; only listed packages are served from node_modules', async () => {
   for (const route of ['/', '/s/main', '/timeline', '/search']) {
     const res = await fetch(base + route)

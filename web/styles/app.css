@@ -378,6 +378,9 @@ kbd {
   -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
 }
 .quick-replies::-webkit-scrollbar { display: none; }
+/* Fade the right edge so a row that scrolls shows it; the padding lets the last chip clear the fade. */
+.quick-replies:not(.compact) { padding-right: 28px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
 .chip.quick-chip { flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--sans); font-size: var(--fs-sm);
   color: var(--text); background: var(--surface); -webkit-touch-callout: none; user-select: none; touch-action: manipulation; }
 .quick-chip:active { background: var(--surface-3); }

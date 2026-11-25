@@ -1049,6 +1049,7 @@ summary.job-group-h { cursor: pointer; }
   .page.home > .usage-wrap { order: 5; margin-top: 28px; }
   .page.home > .usage-wrap.hot { margin-top: 14px; }
   .page.home .home-sessions .card[data-status='working'] { order: -1; }
+  .page.home .home-sessions .card[data-role='orchestrator'] { order: -2; }
   .usage-line {
     display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 0; border: 0; background: none;
     font: var(--fs-sm)/1.4 var(--sans); color: var(--text-3); text-align: left;
@@ -1070,3 +1071,11 @@ summary.job-group-h { cursor: pointer; }
 .device-list .meta { color: var(--text-3); }
 .device-list .meta.bad { color: var(--bad); }
 .topbar .notify-btn.off { opacity: .55; }
+
+/* Phone top bar usage: "5h 12% · wk 41%" */
+.usage-chip {
+  border: 0; background: none; padding: 6px 2px; font: 500 var(--fs-xs)/1 var(--sans); color: var(--text-3);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.usage-chip.warn { color: var(--warn); }
+.usage-chip.bad { color: var(--bad); }

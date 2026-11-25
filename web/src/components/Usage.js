@@ -2,8 +2,9 @@
 // session's context window is. Both come from Claude Code's status line, so they appear after a session's
 // first reply, and the limits only for claude.ai subscriptions.
 import { useEffect, useState } from 'preact/hooks'
+import { signal } from '@preact/signals'
 import { html, when as at, api } from '../lib.js'
-import { usage } from '../store.js'
+import { usage, navigate } from '../store.js'
 import { Icon } from '../icons.js'
 
 /** A window as it stands now: one past its reset time has started over. */
@@ -26,7 +27,8 @@ export function UsageMeter() {
   useEffect(() => {
     api('GET', '/api/usage').then(r => setShares(r.shares), () => {})
   }, [usage.value?.five_hour?.used, usage.value?.seven_day?.used])
-  const [open, setOpen] = useState(false)
+  const open = usageOpen.value
+  const setOpen = v => (usageOpen.value = v)
   if (!five && !week) return null
   // On a phone the meters fold into one line that opens them; it turns amber and moves to the top past 80%.
   const hot = Math.max(five?.used ?? 0, week?.used ?? 0) >= 80
@@ -38,6 +40,24 @@ export function UsageMeter() {
       ${week && html`<${Meter} label="Week" w=${week} by=${!week.reset && shares?.seven_day} />`}
     </div>
   </div>`
+}
+
+/** Whether the phone's folded usage meters on Home are open. */
+const usageOpen = signal(false)
+
+/** Phone top bar: "5h 12% · wk 41%", always in view; tapping opens the meters on Home. */
+export function UsageChip() {
+  const five = current(usage.value?.five_hour)
+  const week = current(usage.value?.seven_day)
+  if (!five && !week) return null
+  const used = Math.max(five?.used ?? 0, week?.used ?? 0)
+  const show = () => {
+    usageOpen.value = true
+    navigate('/')
+    setTimeout(() => document.querySelector('.usage-wrap')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
+  }
+  return html`<button class=${`usage-chip ${level(used)}`} aria-label="Usage limits" onClick=${show}>
+    ${[five && `5h ${five.used}%`, week && `wk ${week.used}%`].filter(Boolean).join(' · ')}</button>`
 }
 
 function Meter({ label, w, by }) {

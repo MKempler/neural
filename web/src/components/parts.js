@@ -25,7 +25,9 @@ export function rowOf(s) {
 }
 
 /** Sessions waiting on Max go to the top; the rest keep their order. */
-export const waitingFirst = list => [...list].sort((a, b) => rowOf(b).waiting - rowOf(a).waiting)
+/** Main (the orchestrator) always first, then sessions waiting on the user. */
+export const waitingFirst = list => [...list].sort((a, b) =>
+  (b.role === 'orchestrator') - (a.role === 'orchestrator') || rowOf(b).waiting - rowOf(a).waiting)
 
 /** Age and unread count, on the right of a session row. */
 export function RowEnd({ s, r }) {

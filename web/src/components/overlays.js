@@ -4,6 +4,7 @@ import { html, api, shortPath, ago, local, unmark, modelLabel } from '../lib.js'
 import { Icon } from '../icons.js'
 import { Dot, RowEnd, rowOf, useAutosize, waitingFirst } from './parts.js'
 import { Highlight } from '../views/Lists.js'
+import { notifyOpen, pushState, pushHelp, enablePush, testPush, ownEndpoint } from '../push.js'
 import {
   switcherOpen, totalUnread, lightbox, paletteOpen, modelSheet, sendNow, newSessionOpen, sessionList, sessions, route, navigate, sessionPath, sessionAction, createSession, send,
 } from '../store.js'
@@ -58,6 +59,50 @@ export function SessionSwitcher() {
 // Model and effort: shows what a session is using; changes run as slash commands in its terminal.
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+/** Notifications: this device's state with Turn on and Send test, and every device the hub sends to. */
+export function NotifySheet() {
+  const [devices, setDevices] = useState(null)
+  const [mine, setMine] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const open = notifyOpen.value
+  const load = () => {
+    api('GET', '/api/push/devices').then(r => setDevices(r.devices)).catch(() => setDevices([]))
+    ownEndpoint().then(setMine).catch(() => {})
+  }
+  useEffect(() => { if (open) load() }, [open])
+  if (!open) return null
+  const state = pushState.value
+  const close = () => (notifyOpen.value = false)
+  const act = fn => async () => {
+    setBusy(true)
+    try { await fn() } catch (e) { alert(e.message) } finally { setBusy(false); load() }
+  }
+  return html`<${Overlay} onClose=${close} label="Notifications">
+    <div class="sheet notify-sheet">
+      <div class="sheet-head"><h2>Notifications</h2>
+        <button class="btn ghost icon-only" aria-label="Close" onClick=${close}><${Icon} name="x" /></button></div>
+      <div class="sheet-body">
+        <div class="field"><span>This device</span>
+          <p class=${`notify-state ${state}`}>${pushHelp[state]}</p>
+          <div class="chips">
+            ${state === 'off' && html`<button class="btn primary sm" disabled=${busy} onClick=${act(enablePush)}>Turn on</button>`}
+            ${state === 'on' && html`<button class="btn sm" disabled=${busy} onClick=${act(testPush)}>Send test</button>`}
+          </div>
+        </div>
+        <div class="field"><span>Devices that get notifications</span>
+          ${devices === null ? html`<p class="hint">Loading…</p>`
+            : !devices.length ? html`<p class="hint">None yet. Turn notifications on from each phone or browser you use.</p>`
+            : html`<ul class="device-list">${devices.map(d => html`<li>
+                <span class="grow">${d.name}${d.endpoint === mine && html` <span class="hint">(this device)</span>`}</span>
+                <span class=${`meta ${d.last_error ? 'bad' : ''}`} title=${d.last_error ?? d.user_agent ?? ''}>
+                  ${d.last_error ? 'last send failed' : d.last_ok_at ? `last delivered ${ago(d.last_ok_at)}` : `added ${ago(d.created_at)}`}</span>
+              </li>`)}</ul>`}
+        </div>
+      </div>
+    </div>
+  </${Overlay}>`
+}
 
 export function ModelSheet() {
   const name = modelSheet.value
@@ -178,6 +223,7 @@ function PaletteBody() {
       { text: 'New session', icon: 'plus', run: () => (newSessionOpen.value = true) },
       { text: 'Home', icon: 'home', run: () => navigate('/') },
       { text: 'Timeline', icon: 'timeline', run: () => navigate('/timeline') },
+      { text: 'Notifications', icon: 'bell', run: () => (notifyOpen.value = true) },
       current && { text: `Open ${current.name}'s terminal`, icon: 'terminal', run: () => navigate(sessionPath(current.name, 'terminal')) },
       current && { text: `Restart ${current.name}`, icon: 'restart', run: () => sessionAction(current.name, 'restart').catch(e => alert(e.message)) },
     ].filter(Boolean)

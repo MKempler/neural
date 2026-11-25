@@ -2,7 +2,7 @@ import { render } from 'preact'
 import { useEffect } from 'preact/hooks'
 import { html } from './lib.js'
 import { Rail, TopBar, TabBar, Strip } from './components/shell.js'
-import { Palette, NewSession, Lightbox, SessionSwitcher, ModelSheet } from './components/overlays.js'
+import { Palette, NewSession, Lightbox, SessionSwitcher, ModelSheet, NotifySheet } from './components/overlays.js'
 import { FileViewer } from './components/FileViewer.js'
 import { QuickRepliesSheet } from './components/QuickReplies.js'
 import { Home, Sessions } from './views/Home.js'
@@ -54,6 +54,7 @@ function App() {
     <${FileViewer} />
     <${SessionSwitcher} />
     <${ModelSheet} />
+    <${NotifySheet} />
     <${QuickRepliesSheet} />
     ${viewportInfo.value && html`<div class="viewport-info" onClick=${toggleViewportInfo}>${viewportInfo.value}</div>`}
   </div>`

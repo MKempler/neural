@@ -304,6 +304,8 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
       })
 
     case 'GET push':
+      if (name === 'devices') return { devices: push.devices() }
+      if (name) throw new HttpError(404, 'not found')
       return { publicKey: push.publicKey, subscriptions: push.subscriptionCount() }
     case 'POST push': {
       const body = await readJson(req)

@@ -3,6 +3,7 @@ import { html } from '../lib.js'
 import { Icon, Glyph } from '../icons.js'
 import { Dot, Link, RowEnd, rowOf, waitingFirst } from './parts.js'
 import { toggleViewportInfo } from '../viewport.js'
+import { notifyOpen, pushState } from '../push.js'
 import {
   connected, route, sessionList, totalUnread, paletteOpen, newSessionOpen, navigate, sessionPath,
 } from '../store.js'
@@ -70,6 +71,8 @@ export function TopBar() {
   return html`<header class="topbar">
     <${Brand} />
     <div class="end">
+      <button class=${`btn ghost icon-only notify-btn ${pushState.value === 'on' ? '' : 'off'}`} aria-label="Notifications"
+        onClick=${() => (notifyOpen.value = true)}><${Icon} name="bell" /></button>
       <span class="conn-dot" role="status" aria-label=${connected.value ? 'Connected' : 'Reconnecting'} ...${holdFor(toggleViewportInfo)}>
         <${Dot} status=${connected.value ? 'online' : 'offline'} />
       </span>

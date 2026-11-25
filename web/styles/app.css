@@ -1060,3 +1060,13 @@ summary.job-group-h { cursor: pointer; }
   .usage-wrap:not(.open) .usage { display: none; }
   .usage-wrap .usage { margin-top: 6px; }
 }
+
+/* Notifications sheet */
+.notify-sheet .notify-state { margin: 0; font-size: var(--fs-sm); }
+.notify-sheet .notify-state.blocked, .notify-sheet .notify-state.needs-install { color: var(--warn); }
+.device-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--fs-sm); }
+.device-list li { display: flex; gap: 12px; align-items: baseline; }
+.device-list .grow { flex: 1; }
+.device-list .meta { color: var(--text-3); }
+.device-list .meta.bad { color: var(--bad); }
+.topbar .notify-btn.off { opacity: .55; }

@@ -402,6 +402,24 @@ test('push notifications go out for replies and approvals, unless a tab is in fr
   await idle('main')
 })
 
+test('the Notifications sheet lists registered devices by name, with when each last got one', async () => {
+  const push = await import('../server/src/push.ts')
+  push.setSender(async () => {})
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1'
+  const subscription = { endpoint: 'https://push.example/iphone', keys: { p256dh: 'p', auth: 'a' } }
+  assert.equal((await api('POST', '/api/push/subscribe', { subscription }, { 'user-agent': iphone })).status, 200)
+  let { devices } = await get('/api/push/devices')
+  assert.equal(devices.length, 1)
+  assert.deepEqual([devices[0].name, devices[0].endpoint, devices[0].last_ok_at], ['iPhone Safari', subscription.endpoint, null])
+  assert.equal((await api('POST', '/api/push/test')).body.sent, 1)
+  devices = (await get('/api/push/devices')).devices
+  assert.ok(devices[0].last_ok_at)
+  assert.equal(push.deviceName('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36'), 'Mac Chrome')
+  assert.equal((await api('GET', '/api/push/nope')).status, 404)
+  await api('POST', '/api/push/unsubscribe', { endpoint: subscription.endpoint })
+  assert.equal((await get('/api/push/devices')).devices.length, 0)
+})
+
 test('the reload trial loads the code against a snapshot, not the live database', async () => {
   const { newCodeLoads } = await import('../server/src/reload.ts')
   const trials = () => fs.readdirSync(os.tmpdir()).filter(f => f.startsWith(`neural-reload-${process.pid}-`))

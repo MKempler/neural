@@ -59,6 +59,22 @@ export function unsubscribe(endpoint: string) {
   remove.run(endpoint)
 }
 
+const listDevices = db.prepare('SELECT endpoint, user_agent, created_at, last_ok_at, last_error FROM push_subscriptions ORDER BY created_at')
+
+/** A short name for a browser from its user agent, e.g. "iPhone Safari" or "Mac Chrome". */
+export function deviceName(ua: string | null) {
+  if (!ua) return 'Unknown device'
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac OS X|Macintosh/.test(ua) ? 'Mac'
+    : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : ''
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : ''
+  return [os, browser].filter(Boolean).join(' ') || 'Unknown device'
+}
+
+/** The registered devices, for the Notifications sheet. */
+export function devices() {
+  return (listDevices.all() as any[]).map(d => ({ ...d, name: deviceName(d.user_agent) }))
+}
+
 export function subscriptionCount() {
   return all.all().length
 }

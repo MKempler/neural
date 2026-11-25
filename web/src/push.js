@@ -46,6 +46,22 @@ export async function testPush() {
   if (!sent) alert('The notification could not be delivered to this device. Try turning notifications off and on in the browser settings.')
 }
 
+/** Whether the Notifications sheet is open (bell in the phone top bar, or the palette). */
+export const notifyOpen = signal(false)
+
+/** This device's subscription endpoint, to mark it in the device list. */
+export async function ownEndpoint() {
+  return (await registration?.pushManager?.getSubscription())?.endpoint ?? null
+}
+
+export const pushHelp = {
+  'needs-install': 'To get notifications on this iPhone, add Neural to the Home Screen (Share, then Add to Home Screen) and open it from there.',
+  blocked: 'Notifications are blocked for this site in the browser settings.',
+  off: 'Get a notification on this device when a session answers, needs approval, or stops.',
+  on: 'Notifications are on for this device.',
+  unsupported: 'This browser does not support notifications.',
+}
+
 const dismissed = signal(local.get('neural.pushCardDismissed', false))
 
 /** Shown on Home until notifications are on for this device (or dismissed). */
@@ -56,15 +72,11 @@ export function NotifySetup() {
     dismissed.value = true
     local.set('neural.pushCardDismissed', true)
   }
-  const text = {
-    'needs-install': 'To get notifications on this iPhone, add Neural to the Home Screen (Share, then Add to Home Screen) and open it from there.',
-    blocked: 'Notifications are blocked for this site in the browser settings.',
-    off: 'Get a notification on this device when a session answers, needs approval, or stops.',
-  }[state]
+  const text = pushHelp[state]
   return html`<div class="setup">
     <${Icon} name="bell" />
     <span class="grow">${text}</span>
     ${state === 'off' && html`<button class="btn primary sm" onClick=${() => enablePush().catch(e => alert(e.message))}>Turn on</button>`}
-    <button class="btn ghost sm" onClick=${dismiss}>Not now</button>
+    <button class="btn ghost sm" onClick=${dismiss} title="You can turn them on later from the bell at the top">Not now</button>
   </div>`
 }

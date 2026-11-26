@@ -1530,6 +1530,57 @@ test('a fresh context can be asked for by hand, for a worker too', async () => {
   await idle('main')
 })
 
+test('a saved handoff is not held up by a quiet message, is saved again after later work, and can be forced', async () => {
+  const { sendMessage } = await import('../server/src/router.ts')
+  const { config } = await import('../server/src/config.ts')
+  const file = path.join(tmp, 'uploads/handoff/hw.md')
+  const freshAfter = async (before: any, what: string) => until(what, async () => {
+    const s = await session('hw')
+    return s.status === 'idle' && s.channel_connected && s.claude_session_id !== before.claude_session_id
+  }, 20_000)
+
+  // A quiet (fyi) message waits for the next real message; it must not hold the restart up (it did, for 35 min).
+  let before = await idle('hw')
+  const asks = () => events.recent('hw', 500).filter((e: any) => e.event === 'handoff-asked').length
+  const { events } = await import('../server/src/db.ts')
+  const n = asks()
+  await api('POST', '/api/sessions/hw/handoff')
+  await until('asked', () => asks() > n || null)
+  await new Promise(r => setTimeout(r, 300))
+  await idle('hw')
+  const fyi = sendMessage({ from: 'main', to: 'hw', body: 'low priority, for later', source: 'send_message', quiet: true })
+  fs.writeFileSync(file, 'hw state 2\n')
+  await freshAfter(before, 'restarted despite the quiet message')
+  const { outbox } = await import('../server/src/db.ts')
+  await until('the quiet message reaches the fresh session', () => outbox.get(fyi.id)?.acked_by === 'prompt' || null, 20_000)
+  await idle('hw')
+
+  // Work after the save means the file has to be saved again; a hand request while it waits forces it.
+  before = await idle('hw')
+  const idleMs = config.handoffIdleMs
+  config.handoffIdleMs = 10 * 60_000 // hold it on "a quiet moment"
+  try {
+    assert.equal((await api('POST', '/api/sessions/hw/handoff')).status, 200)
+    await idle('hw')
+    fs.writeFileSync(file, 'hw state 3\n')
+    await new Promise(r => setTimeout(r, 1200))
+    await say('hw', 'one more thing')
+    await messageWhere('the later turn', m => m.from_name === 'hw' && m.body === 'echo: one more thing')
+    await idle('hw')
+    let again = (await api('POST', '/api/sessions/hw/handoff')).body
+    assert.equal(again.already, true)
+    assert.match(again.waiting_on, /saved again|updated/)
+    fs.writeFileSync(file, 'hw state 4\n')
+    again = (await api('POST', '/api/sessions/hw/handoff')).body
+    assert.equal(again.restarted, true)
+    await freshAfter(before, 'forced fresh restart')
+  } finally {
+    config.handoffIdleMs = idleMs
+  }
+  await idle('hw')
+  await idle('main')
+})
+
 test('a message pushed to a session in the moment its old process goes away reaches the new one', async () => {
   const { outbox } = await import('../server/src/db.ts')
   const { restartSession } = await import('../server/src/spawner.ts')

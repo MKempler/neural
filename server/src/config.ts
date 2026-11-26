@@ -91,6 +91,9 @@ export const config = {
   handoffWorkerTokens: Number(env('HANDOFF_WORKER_TOKENS') ?? file.handoffWorkerTokens ?? 90_000),
   // How long a session must have been quiet before that restart, so a conversation isn't cut off.
   handoffIdleMs: Number(env('HANDOFF_IDLE_MS') ?? 30_000),
+  // A saved handoff still waiting this long after the session went idle restarts anyway, past anything that only
+  // delays it (an attached terminal, a message in flight), and the orchestrator is told. Background work still waits.
+  handoffStuckMs: Number(env('HANDOFF_STUCK_MS') ?? 5 * 60_000),
   // A backstop for sessions without handoffs: Claude Code compacts once the context reaches this many tokens,
   // instead of letting a 1M-token context fill (every turn re-reads all of it). 0 leaves Claude Code's default.
   autoCompactWindow: Number(env('AUTO_COMPACT_WINDOW') ?? 300_000),

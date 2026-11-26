@@ -6,10 +6,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.ts'
-import { sessions, outbox, questions, permissions, prefs, usage as usageStore, events, type Session } from './db.ts'
+import { sessions, outbox, messages, questions, permissions, prefs, usage as usageStore, events, type Session } from './db.ts'
 import { activity, sessionChanged } from './live.ts'
 
-interface State { asked_at: number; mtime: number; reminded?: boolean; manual?: boolean }
+interface State { asked_at: number; mtime: number; reminded?: boolean; manual?: boolean; told?: boolean }
 const key = (name: string) => `handoff:${name}`
 const stateOf = (name: string) => prefs.get<State>(key(name))
 const setState = (name: string, st: State | null) => prefs.set(key(name), st)
@@ -70,7 +70,13 @@ export function sizeNote(file: string) {
 
 /** Ask the session to write down its state; the restart follows once it has (see check). */
 export async function ask(s: Session, manual: boolean, tokens: number | null = null) {
-  if (stateOf(s.name)) return { already: true }
+  const st = stateOf(s.name)
+  if (st) {
+    // Asked again by hand while one is pending: push it through now if only soft things hold it up.
+    const waiting = manual ? await check(s, true) : null
+    if (!stateOf(s.name)) return { restarted: true, file: stateFile(s) }
+    return { already: true, pending_min: Math.round((Date.now() - st.asked_at) / 60_000), waiting_on: waiting ?? undefined }
+  }
   const file = stateFile(s)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   setState(s.name, { asked_at: Date.now(), mtime: mtime(file), manual })
@@ -87,33 +93,82 @@ export async function ask(s: Session, manual: boolean, tokens: number | null = n
   return { asked: true, file }
 }
 
+/** When the session last started a turn (persisted, so it survives a hub restart). */
+const lastPromptAt = (name: string) => {
+  const e = events.recent(name, 200).find(e => e.event === 'hook:UserPromptSubmit')
+  return e ? Date.parse(e.ts) : 0
+}
+
+const tellMain = async (about: string, body: string) => (await import('./health.ts')).tell(about, body, true)
+const restarting = new Set<string>()
+
 /** On the reconcile timer, for a running session that was asked: restart it fresh once the file is updated and
- *  nothing would be interrupted. */
-export async function check(s: Session) {
+ *  nothing would be interrupted. A saved handoff stuck idle past handoffStuckMs (or forced by hand) restarts past
+ *  the soft holds; a non-idle session or background work always waits. Returns what it is waiting on, or null. */
+export async function check(s: Session, force = false): Promise<string | null> {
   const st = stateOf(s.name)
-  if (!st) return
+  if (!st || restarting.has(s.name)) return null
   const file = stateFile(s)
   const quietFor = Date.now() - Math.max(activity.get(s.name) ?? 0, Date.parse(s.updated_at))
-  const updated = mtime(file) > st.mtime
-  if (!updated) {
-    // Asked a while ago and idle since, but nothing written: one reminder; never a restart without it.
-    if (!st.reminded && s.status === 'idle' && Date.now() - st.asked_at > 10 * 60_000 && quietFor > 5 * 60_000) {
+  const saved = mtime(file)
+  // A turn that started after the save may have changed what the file should say: wait for a new save.
+  if (saved > st.mtime && lastPromptAt(s.name) > saved + 1000) {
+    setState(s.name, { ...st, mtime: saved, asked_at: Date.now(), reminded: false })
+    return 'its handoff file, saved again after later work'
+  }
+  if (saved <= st.mtime) {
+    // Asked a while ago and idle since, but nothing written: one reminder, then the orchestrator is told; never a
+    // restart without it.
+    const idleLong = s.status === 'idle' && quietFor > 5 * 60_000
+    if (!st.reminded && idleLong && Date.now() - st.asked_at > 10 * 60_000) {
       setState(s.name, { ...st, reminded: true })
       await send(s.name, `Reminder: Neural is waiting for ${file} to be updated before restarting you with a fresh context. Update it, then end your turn.`)
+    } else if (st.reminded && !st.told && idleLong && Date.now() - st.asked_at > 20 * 60_000) {
+      setState(s.name, { ...st, told: true })
+      await tellMain(s.name, `${s.name}'s fresh-context restart has waited ${Math.round((Date.now() - st.asked_at) / 60_000)} min: it hasn't updated ${file}. It is idle.`)
     }
-    return
+    return 'its handoff file to be updated'
   }
-  if (s.status !== 'idle' || !s.channel_connected || quietFor < config.handoffIdleMs) return
-  if (outbox.pending(s.name).length || outbox.pushed(s.name).length) return
-  if (questions.openFor(s.name).length || permissions.open().some(p => p.session === s.name)) return
+  // Hard holds: never restart through these.
   const { mux, freshStart, backgroundWork } = await import('./spawner.ts')
-  if (await mux.attached(s.name)) return // someone is looking at its terminal
-  if (await backgroundWork(s)) return // a background shell or task would be killed
-  setState(s.name, null)
-  usageStore.remove(s.name) // the old context reading would ask again straight away
-  events.add(s.name, 'handoff', { file })
-  await freshStart(s.name)
-  await send(s.name, `You were restarted with a fresh context (not resumed) to keep you sharp. Read ${file} first: it is where you left off. Then carry on.`)
+  const hard = s.status !== 'idle' ? `it is ${s.status}` : !s.channel_connected ? 'its channel is down' : await backgroundWork(s)
+  // Soft holds: they only delay it. Quiet messages (fyi, acks) wait for the next real message, which the
+  // restart notice is, so they don't hold it up.
+  const real = [...outbox.pending(s.name), ...outbox.pushed(s.name)].some(r => !quietMessage(r.message_id))
+  const soft = hard ? null
+    : quietFor < config.handoffIdleMs ? 'a quiet moment'
+    : real ? 'a message being delivered'
+    : questions.openFor(s.name).length || permissions.open().some(p => p.session === s.name) ? 'an open question'
+    : (await mux.attached(s.name)) ? 'someone watching its terminal'
+    : null
+  const stuck = s.status === 'idle' && Date.now() - Math.max(saved, Date.parse(s.updated_at)) > config.handoffStuckMs
+  if (hard || (soft && !stuck && !force)) {
+    if (hard && stuck && !st.told) {
+      setState(s.name, { ...st, told: true })
+      await tellMain(s.name, `${s.name}'s fresh-context restart is waiting on ${hard}. It restarts once that's done.`)
+    }
+    return hard || soft
+  }
+  restarting.add(s.name)
+  try {
+    setState(s.name, null)
+    usageStore.remove(s.name) // the old context reading would ask again straight away
+    events.add(s.name, 'handoff', { file, ...(soft ? { forced: soft } : {}) })
+    await freshStart(s.name)
+    await send(s.name, `You were restarted with a fresh context (not resumed) to keep you sharp. Read ${file} first: it is where you left off. Then carry on.`)
+    if (soft && !force) await tellMain(s.name, `Restarted ${s.name} with a fresh context: its saved handoff had waited over ${Math.round(config.handoffStuckMs / 60_000)} min on ${soft}.`)
+  } finally {
+    restarting.delete(s.name)
+  }
+  return null
+}
+
+const quietMessage = (id: number) => {
+  try {
+    return Boolean(JSON.parse(messages.get(id)?.meta ?? 'null')?.quiet)
+  } catch {
+    return false
+  }
 }
 
 const sessionsContext = (name: string) => usageStore.get<{ used: number | null }>(name)?.used ?? null

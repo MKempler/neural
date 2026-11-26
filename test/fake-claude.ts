@@ -99,7 +99,9 @@ if (!arg('--resume') && /^(dlg|adddir|odd)/.test(name ?? '')) {
   if (await selectDialog('WARNING: Loading development channels', ['Exit', 'I am using this for local development']) !== 1) process.exit(0)
 }
 
-console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId} model=${arg('--model') ?? 'default'} effort=${arg('--effort') ?? 'default'} servers=${Object.keys(mcpServers).sort().join(',')}`)
+console.log(`fake claude "${name}" ${arg('--resume') ? 'resumed' : 'started'} ${sessionId} model=${arg('--model') ?? 'default'} effort=${arg('--effort') ?? 'default'} servers=${Object.keys(mcpServers).sort().join(',')}${process.env.ANTHROPIC_BASE_URL ? ` base=${process.env.ANTHROPIC_BASE_URL} env_model=${process.env.ANTHROPIC_MODEL} key=${process.env.ANTHROPIC_AUTH_TOKEN === 'test-key' ? 'test' : 'missing'}` : ''}`)
+// Like Claude Code, Channels only with the development flag (and Claude's own login, which a custom endpoint lacks).
+const channelsOn = argv.includes('--dangerously-load-development-channels') && !process.env.ANTHROPIC_BASE_URL
 
 const client = new Client({ name: 'fake-claude', version: '0' }, { capabilities: {} })
 // Like Claude Code, announce each tool call to the PreToolUse hook first.
@@ -115,7 +117,7 @@ client.fallbackNotificationHandler = async (n: any) => {
     await hook('Stop', { last_assistant_message: 'Replied.' })
     return
   }
-  if (n.method !== 'notifications/claude/channel') return
+  if (n.method !== 'notifications/claude/channel' || !channelsOn) return
   const body: string = n.params.content
   const { msg_id, from } = n.params.meta
   console.log(`← hub: ${body}`)
@@ -310,6 +312,15 @@ process.stdin.on('data', async d => {
       typed = ''
       if (!text) continue
       console.log(`> ${text}`)
+      // A message Neural typed in, framed like a channel event: handled as one.
+      const framed = [...text.matchAll(/<channel source="neural" from="([^"]+)" msg_id="(\d+)"[^>]*>\n([\s\S]*?)\n<\/channel>/g)]
+      if (framed.length && !channelsOn) {
+        await hook('UserPromptSubmit', { prompt: text })
+        const [, from, msg_id, body] = framed[framed.length - 1]
+        await call('reply', { text: `typed ${framed.length}: ${framed.map(f => f[3]).join(' | ')}`, in_reply_to: msg_id })
+        await hook('Stop', { last_assistant_message: 'Replied.' })
+        continue
+      }
       await hook('UserPromptSubmit', { prompt: text })
       await call('reply', { text: `pasted: ${text.replace(/\s+/g, ' ')}` })
       await hook('Stop', { last_assistant_message: 'Replied.' })

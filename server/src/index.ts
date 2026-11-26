@@ -159,7 +159,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         if (action === 'restart') return restartSession(name)
         if (action === 'launch') {
           const body = await readJson(req)
-          const when = await setLaunch(name, { model: body.model, effort: body.effort, mcpServers: body.mcp_servers })
+          const when = await setLaunch(name, { model: body.model, effort: body.effort, provider: body.provider, mcpServers: body.mcp_servers })
           return { ...sessions.get(name), applies: when }
         }
         if (action === 'handoff') {
@@ -193,7 +193,7 @@ async function api(req: http.IncomingMessage, url: URL): Promise<unknown> {
         throw new HttpError(404, 'unknown action')
       }
       const body = await readJson(req)
-      const s = await startSession(String(body.name ?? ''), { cwd: body.cwd, role: body.role === 'orchestrator' ? 'orchestrator' : 'worker', model: body.model, effort: body.effort })
+      const s = await startSession(String(body.name ?? ''), { cwd: body.cwd, role: body.role === 'orchestrator' ? 'orchestrator' : 'worker', model: body.model, effort: body.effort, provider: body.provider })
       if (body.prompt) sendMessage({ from: 'user', to: s.name, body: String(body.prompt), source: 'ui' })
       return s
     }

@@ -11,6 +11,7 @@ import type { Mux } from './mux/mux.ts'
 import * as health from './health.ts'
 import * as handoff from './handoff.ts'
 import * as worktree from './worktree.ts'
+import * as providers from './providers.ts'
 
 export const mux: Mux = new Tmux(config.tmuxSocket)
 
@@ -111,7 +112,7 @@ function writeRunFiles(s: Session, token: string) {
  *  starts. A session launched with a different one is out of date. */
 export function launchRev(s: Session): string {
   const { mcp, settings, own } = runConfig(s)
-  const h = crypto.createHash('sha256').update(JSON.stringify({ mcp, settings, own, flags: [...FLAGS, ...sessionFlags(s)] }))
+  const h = crypto.createHash('sha256').update(JSON.stringify({ mcp, settings, own, flags: sessionFlags(s), provider: s.provider ?? undefined }))
   for (const f of ['channel/neural-channel.ts', 'channel/statusline.sh']) h.update(fs.readFileSync(path.join(ROOT, f)))
   // The orchestrator's guide is read at launch too.
   if (s.role === 'orchestrator') {
@@ -132,9 +133,11 @@ const FLAGS = [
   '--dangerously-load-development-channels', 'server:neural',
 ]
 
-/** The model and effort chosen for this session, if any. */
+/** The flags for this session: on another provider no Channels (they need Claude's own login) and the model
+ *  goes in the environment; otherwise the model and effort chosen for it, if any. */
 function sessionFlags(s: Session) {
-  return [...(s.launch_model ? ['--model', s.launch_model] : []), ...(s.launch_effort ? ['--effort', s.launch_effort] : [])]
+  if (providers.of(s.provider)) return FLAGS.slice(0, -2)
+  return [...FLAGS, ...(s.launch_model ? ['--model', s.launch_model] : []), ...(s.launch_effort ? ['--effort', s.launch_effort] : [])]
 }
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -194,10 +197,25 @@ export async function setServers(name: string, changes: unknown) {
   return applyLaunch(name, { mcp_servers: mergeServers(s.mcp_servers, changes) })
 }
 
-/** Checked launch_model / launch_effort fields from a request ('' or 'default' clears one). */
-export function launchFields(opts: { model?: unknown; effort?: unknown }): Partial<Session> {
+/** Checked launch_model / launch_effort / provider fields from a request ('' or 'default' clears one). On another
+ *  provider the model is that provider's (its default if none is given), stored as its full id. */
+export function launchFields(opts: { model?: unknown; effort?: unknown; provider?: unknown }, current?: Session | null): Partial<Session> {
   const clear = (v: unknown) => v === '' || v === 'default' || v === null
   const fields: Partial<Session> = {}
+  if (opts.provider !== undefined && !clear(opts.provider) && !providers.NAMES.includes(String(opts.provider))) {
+    throw new Error(`provider must be one of ${providers.NAMES.join(', ')}`)
+  }
+  const provider = opts.provider === undefined ? current?.provider ?? null : clear(opts.provider) || opts.provider === 'anthropic' ? null : String(opts.provider)
+  if (opts.provider !== undefined) fields.provider = provider
+  const p = providers.of(provider)
+  if (p) {
+    // A model left over from Anthropic (or another provider) doesn't carry over.
+    const keep = opts.model === undefined && current?.launch_model?.startsWith(p.modelPrefix) ? current.launch_model : undefined
+    fields.launch_model = providers.fullModel(p, clear(opts.model) ? null : (opts.model as string | undefined) ?? keep)
+    if (opts.effort !== undefined) fields.launch_effort = clear(opts.effort) ? null : String(opts.effort)
+    return fields
+  }
+  if (opts.provider !== undefined && current?.launch_model?.includes('/') && opts.model === undefined) fields.launch_model = null
   if (opts.model !== undefined) {
     if (!clear(opts.model) && !/^[A-Za-z0-9._\[\]-]{1,64}$/.test(String(opts.model))) throw new Error('model must be an alias like sonnet or opus, or a full model name')
     fields.launch_model = clear(opts.model) ? null : String(opts.model)
@@ -212,9 +230,13 @@ export function launchFields(opts: { model?: unknown; effort?: unknown }): Parti
 /** Choose the model and effort a session starts with ('' or 'default' for Claude Code's default). It takes
  *  effect at the next start: now, if the session is idle; otherwise once it has finished and been idle a
  *  little while (the change makes it out of date, so it is refreshed like after a Neural update). */
-export async function setLaunch(name: string, opts: { model?: unknown; effort?: unknown }): Promise<'restarted' | 'when idle' | 'next start'> {
-  if (!sessions.get(name)) throw new Error(`no session "${name}"`)
-  return applyLaunch(name, launchFields(opts))
+export async function setLaunch(name: string, opts: { model?: unknown; effort?: unknown; provider?: unknown }): Promise<'restarted' | 'when idle' | 'next start'> {
+  const s = sessions.get(name)
+  if (!s) throw new Error(`no session "${name}"`)
+  const fields = launchFields(opts, s)
+  const p = providers.of(fields.provider === undefined ? s.provider : fields.provider)
+  if (p && !(await providers.hasKey(p))) throw new Error(noKey(p))
+  return applyLaunch(name, fields)
 }
 
 /** Store launch settings and bring the session onto them: now if idle, else once it is (see setLaunch). */
@@ -229,6 +251,8 @@ async function applyLaunch(name: string, fields: Partial<Session>): Promise<'res
   }
   return config.autoRefresh ? 'when idle' : 'next start'
 }
+
+const noKey = (p: providers.Provider) => `no ${p.name} key in the Keychain: store it with security add-generic-password -s ${p.keychain} -a "$USER" -w (it prompts for the key)`
 
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
@@ -250,9 +274,10 @@ export function launchArgv(s: Session, opts: { resume?: boolean } = {}) {
   const token = crypto.randomUUID()
   launchTokens.set(s.name, token)
   const { mcpFile, settingsFile } = writeRunFiles(s, token)
-  const argv = [resolveClaude(), '--name', s.name, '--mcp-config', mcpFile, '--settings', settingsFile, ...FLAGS, ...sessionFlags(s)]
+  const argv = [resolveClaude(), '--name', s.name, '--mcp-config', mcpFile, '--settings', settingsFile, ...sessionFlags(s)]
   if (opts.resume && canResume(s)) argv.push('--resume', s.claude_session_id!)
-  return argv
+  const p = providers.of(s.provider)
+  return p ? providers.wrap(p, argv) : argv
 }
 
 /** Is there a conversation to resume? Claude Code saves one only from its first prompt, and `--resume` of an id
@@ -265,9 +290,9 @@ function canResume(s: Session) {
 
 export async function startSession(
   name: string,
-  opts: { cwd?: string; role?: 'orchestrator' | 'worker'; autostart?: boolean; resume?: boolean; model?: unknown; effort?: unknown; mcpServers?: unknown } = {},
+  opts: { cwd?: string; role?: 'orchestrator' | 'worker'; autostart?: boolean; resume?: boolean; model?: unknown; effort?: unknown; provider?: unknown; mcpServers?: unknown } = {},
 ): Promise<Session> {
-  const launch = launchFields(opts)
+  const launch = launchFields(opts, sessions.get(name))
   if (opts.mcpServers !== undefined) launch.mcp_servers = mergeServers(sessions.get(name)?.mcp_servers ?? null, opts.mcpServers)
   if (!validName(name)) throw new Error(`invalid session name "${name}" (lowercase letters, digits, - and _, up to 32 characters)`)
   const existing = sessions.get(name)
@@ -279,6 +304,8 @@ export async function startSession(
   }
   if (existing && (await mux.alive(name))) throw new Error(`session "${name}" is already running`)
   await ensureClaude()
+  const provider = providers.of(launch.provider === undefined ? existing?.provider : launch.provider)
+  if (provider && !(await providers.hasKey(provider))) throw new Error(noKey(provider))
 
   const role = opts.role ?? existing?.role ?? 'worker'
   sessions.create(name, role, cwd, opts.autostart ?? (existing ? Boolean(existing.autostart) : role === 'orchestrator'))
@@ -301,6 +328,9 @@ export async function startSession(
   const env: Record<string, string> = { MCP_PROTOCOL_NEGOTIATION: 'legacy' }
   if (config.autoCompactWindow > 0) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(config.autoCompactWindow)
   if (s.role !== 'orchestrator' && !config.workerClaudeaiMcp) env.ENABLE_CLAUDEAI_MCP_SERVERS = 'false'
+  // Another provider: its endpoint and model (the key is read in the session's own shell, see providers.wrap).
+  const p = providers.of(s.provider)
+  if (p) Object.assign(env, providers.env(p, providers.fullModel(p, s.launch_model)), { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' })
   await mux.spawn(name, cwd, launchArgv(s, { resume: opts.resume }), env)
   sessions.update(name, { launch_rev: launchRev(s) })
   spawnedAt.set(name, Date.now())

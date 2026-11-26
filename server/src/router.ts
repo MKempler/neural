@@ -15,6 +15,7 @@ import * as jobs from './jobs.ts'
 import * as handoff from './handoff.ts'
 import * as templates from './templates.ts'
 import * as worktree from './worktree.ts'
+import * as providers from './providers.ts'
 import { snapshot, recap, type Snapshot } from './git.ts'
 
 const MAX_ATTEMPTS = 4
@@ -68,6 +69,8 @@ export function sendMessage(m: { from: string; to: string; body: string; source:
 export function flush(target: string) {
   const s = sessions.get(target)
   if (!s || !channels.has(target)) return
+  // Sessions on another provider have no Channels: their messages are typed into the terminal.
+  if (providers.of(s.provider)) return void typeIn(target)
   const hold = usage.held(target)
   const rows = outbox.pending(target).map(row => ({ row, msg: messages.get(row.message_id) }))
   // Near a usage limit a low-priority session gets only the user's messages; the rest wait for the reset.
@@ -90,6 +93,50 @@ export function flush(target: string) {
     delivery(msg.id)
     // Neural's own messages (such as "carry on after the limit") continue the user's work, so they count as theirs.
     beginTurnIfIdle(target, msg.from_name === 'user' || msg.from_name === 'system')
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Typed delivery, for sessions on another provider (Channels need Claude's own login). Messages are pasted into
+// the terminal as a prompt, framed the way a channel message is, so the session's instructions apply as usual.
+// Only when it is idle: typed into a running turn they would sit in the input box. The rest wait for the turn to
+// end (onTurnEnd flushes again). Seeing the tag in UserPromptSubmit confirms delivery, like a channel push.
+
+const typing = new Set<string>()
+
+/** The prompt text for messages typed into a session. */
+export function typedPrompt(list: Message[]) {
+  return list.map(m => `<channel source="neural" from="${senderTag(m.from_name)}" msg_id="${m.id}" ts="${m.ts}">\n${forClaude(m.id, bodyFor(m))}\n</channel>`).join('\n\n')
+}
+
+async function typeIn(target: string) {
+  if (typing.has(target)) return
+  typing.add(target)
+  try {
+    const s = sessions.get(target)
+    if (!s || s.status !== 'idle' || outbox.pushed(target).length) return
+    const hold = usage.held(target)
+    const due = outbox.pending(target).map(row => ({ row, msg: messages.get(row.message_id) }))
+      .filter((r): r is { row: typeof r.row; msg: Message } => Boolean(r.msg) && !(hold && r.msg!.from_name !== 'user'))
+    if (!due.some(r => !isQuiet(r.msg))) return
+    const send: Message[] = []
+    for (const { row, msg } of due) {
+      if (row.attempts >= MAX_ATTEMPTS) {
+        original.delete(row.message_id)
+        outbox.markFailed(row.message_id, 'gave up after repeated delivery attempts')
+        delivery(row.message_id)
+      } else send.push(msg)
+    }
+    if (!send.length || !(await mux.alive(target))) return
+    // Recorded before typing, so the turn it starts is counted from here.
+    for (const m of send) outbox.markPushed(m.id, 'typed')
+    beginTurnIfIdle(target, send.some(m => m.from_name === 'user' || m.from_name === 'system'))
+    await mux.paste(target, typedPrompt(send))
+    for (const m of send) delivery(m.id)
+  } catch (e) {
+    events.add(target, 'typed-failed', { error: String(e) })
+  } finally {
+    typing.delete(target)
   }
 }
 
@@ -510,6 +557,8 @@ function onTurnEnd(name: string, payload: any) {
     turns.delete(name)
     if (!stoppedAtLimit(name, last)) setStatus(name, 'idle')
   }
+  // Typed delivery waits for an idle session: what came in during the turn goes in now.
+  if (providers.of(sessions.get(name)?.provider)) setTimeout(() => flush(name), 500)
 }
 
 /** A turn that ended normally but says it stopped at the usage limit (a tool or subagent ran into it, so
@@ -567,6 +616,8 @@ export function channelDisconnected(name: string) {
 export async function retryStale() {
   // Messages held for low-priority sessions near a usage limit go out once it has reset.
   for (const s of sessions.all()) if (s.priority === 'low' && channels.has(s.name) && outbox.pending(s.name).length) flush(s.name)
+  // Typed delivery: anything still waiting for an idle moment (a turn that ended without a Stop, say).
+  for (const s of sessions.all()) if (providers.of(s.provider) && s.status === 'idle' && outbox.pending(s.name).length) flush(s.name)
 
   for (const row of outbox.stale(config.ackTimeoutSec)) {
     const s = sessions.get(row.target)
@@ -730,6 +781,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
           note: s.note ? { text: s.note, at: s.note_at } : undefined,
           priority: s.priority === 'normal' ? undefined : s.priority,
           usage_share: share.five_hour || share.week ? share : undefined,
+          provider: s.provider ?? undefined,
           model: s.model, effort: s.effort,
           launch: s.launch_model || s.launch_effort ? { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' } : undefined,
           mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : undefined,
@@ -761,10 +813,11 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       return { name: a.name, status: r.status, exit_code: r.exit_code, output_tail: (r.output ?? '').trimEnd().split('\n').slice(-30).join('\n') }
     }
     case 'set_model': {
-      if (a.model === undefined && a.effort === undefined) throw new Error('give model, effort or both')
-      const when = await setLaunch(String(a.name), { model: a.model, effort: a.effort })
+      if (a.model === undefined && a.effort === undefined && a.provider === undefined) throw new Error('give model, effort, provider or a mix')
+      const when = await setLaunch(String(a.name), { model: a.model, effort: a.effort, provider: a.provider })
       const note = { restarted: 'Restarted with it now; the conversation was resumed.', 'when idle': 'It switches once its current turn is done and it has been idle a few minutes (it is restarted and resumes its conversation).', 'next start': 'It applies the next time the session starts.' }[when]
-      return { name: a.name, model: a.model, effort: a.effort, note }
+      const now = sessions.get(String(a.name))!
+      return { name: a.name, provider: now.provider ?? 'anthropic', model: now.launch_model ?? 'default', effort: a.effort, note }
     }
     case 'set_mcp_servers': {
       const when = await setServers(String(a.name), a.mcp_servers)
@@ -803,7 +856,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       if (!validName(String(a.name))) throw new Error('name must be lowercase letters, digits, - or _ (up to 32 characters)')
       if (sessions.get(a.name) && (await mux.alive(a.name))) throw new Error(`"${a.name}" is already running`)
       await ensureClaude() // before a project folder is made for a session that couldn't start
-      launchFields({ model: a.model, effort: a.effort }) // checked before anything is created
+      launchFields({ model: a.model, effort: a.effort, provider: a.provider }, sessions.get(a.name)) // checked before anything is created
       if (a.mcp_servers !== undefined) mergeServers(null, a.mcp_servers)
       // A new project or a clone gets its folder in the projects folder first.
       let cwd = a.cwd
@@ -816,7 +869,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
         tree = await worktree.create(cwd, String(a.name), a.worktree === true ? true : a.worktree.trim())
         cwd = tree.path
       }
-      await startSession(a.name, { cwd, role: 'worker', model: a.model, effort: a.effort, mcpServers: a.mcp_servers })
+      await startSession(a.name, { cwd, role: 'worker', model: a.model, effort: a.effort, provider: a.provider, mcpServers: a.mcp_servers })
       if (a.priority) setPriority(a.name, a.priority)
       if (typeof a.fresh_context === 'boolean') handoff.setEnabled(a.name, a.fresh_context, a.fresh_at)
       if (a.initial_prompt) sendMessage({ from: caller, to: a.name, body: a.initial_prompt, source: 'send_message' })

@@ -67,6 +67,7 @@ export type Session = {
   handoff: number | null
   handoff_at: number | null
   handoff_tokens: number | null
+  provider: string | null
 }
 
 export type Message = {

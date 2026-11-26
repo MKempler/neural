@@ -9,6 +9,7 @@ export interface Template {
   description?: string
   model?: string
   effort?: string
+  provider?: string
   mcp_servers?: Record<string, unknown>
   priority?: 'high' | 'normal' | 'low'
   fresh_context?: boolean
@@ -35,18 +36,18 @@ export function get(name: string): Template {
   return t
 }
 
-const FIELDS = ['description', 'model', 'effort', 'mcp_servers', 'priority', 'fresh_context', 'fresh_at_percent', 'fresh_at_tokens', 'instructions'] as const
+const FIELDS = ['description', 'provider', 'model', 'effort', 'mcp_servers', 'priority', 'fresh_context', 'fresh_at_percent', 'fresh_at_tokens', 'instructions'] as const
 
 /** Check a template's fields, throwing on anything spawn_session would refuse. */
 function check(t: Record<string, unknown>): Template {
   for (const k of Object.keys(t)) if (!(FIELDS as readonly string[]).includes(k)) throw new Error(`unknown template field "${k}" (fields: ${FIELDS.join(', ')})`)
-  launchFields({ model: t.model, effort: t.effort })
+  launchFields({ model: t.model, effort: t.effort, provider: t.provider })
   if (t.mcp_servers !== undefined) mergeServers(null, t.mcp_servers)
   if (t.priority !== undefined && !['high', 'normal', 'low'].includes(String(t.priority))) throw new Error('priority must be high, normal or low')
   if (t.fresh_context !== undefined && typeof t.fresh_context !== 'boolean') throw new Error('fresh_context must be true or false')
   if (t.fresh_at_percent !== undefined && !(Number(t.fresh_at_percent) >= 5 && Number(t.fresh_at_percent) <= 95)) throw new Error('fresh_at_percent must be between 5 and 95')
   if (t.fresh_at_tokens !== undefined && !(Number(t.fresh_at_tokens) >= 20_000)) throw new Error('fresh_at_tokens must be at least 20000')
-  for (const k of ['description', 'instructions', 'model', 'effort'] as const) if (t[k] !== undefined && typeof t[k] !== 'string') throw new Error(`${k} must be text`)
+  for (const k of ['description', 'instructions', 'model', 'effort', 'provider'] as const) if (t[k] !== undefined && typeof t[k] !== 'string') throw new Error(`${k} must be text`)
   return t as Template
 }
 
@@ -76,6 +77,8 @@ export function apply(args: Record<string, any>): Record<string, any> {
   if (!args.template) return args
   const t = get(String(args.template))
   const out = { ...args }
+  // A template on another provider brings its model along: a model given in the call is for that provider too.
+  if (out.provider === undefined && t.provider !== undefined) out.provider = t.provider
   for (const k of ['model', 'effort', 'mcp_servers', 'priority', 'fresh_context'] as const) {
     if (out[k] === undefined && t[k] !== undefined) out[k] = t[k]
   }

@@ -67,7 +67,8 @@ const ORCHESTRATOR_TOOLS = [
     clone: str('owner/name of a GitHub repository to clone into the projects folder and work in'),
     worktree: { type: ['boolean', 'string'], description: 'Work in its own git worktree of the repository at cwd (or the clone): true for a new branch neural/<name>, or a branch name (checked out if it exists, else created from HEAD). It lives in <repo>/.claude/worktrees/<name>; stop_session removes it when nothing in it is uncommitted, and the branch stays. Use it when several sessions work on one repository' },
     initial_prompt: str('First message to send it'),
-    model: str('Model to run it on, kept across restarts: an alias (sonnet, opus, haiku) or a full model name. Default: Claude Code\'s default. A cheaper model saves quota for routine work'),
+    model: str('Model to run it on, kept across restarts: an alias (sonnet, opus, haiku) or a full model name; with provider fireworks a Fireworks model name. Default: Claude Code\'s default. A cheaper model saves quota for routine work'),
+    provider: { type: 'string', enum: ['anthropic', 'fireworks'], description: 'Who runs the model, kept across restarts. anthropic (default): Claude, on the Claude plan. fireworks: an open model on Fireworks, paid per token and not counted against the Claude windows; give model as a Fireworks name (deepseek-v4p1-flash, the default: cheap and fast, for mechanical work; kimi-k3p1-pro: more judgment, slower). No WebSearch there, and messages reach it typed into its terminal, so they wait while it is busy' },
     effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'Effort level, kept across restarts (default: Claude Code\'s default)' },
     mcp_servers: { type: 'object', description: 'Extra MCP servers for this session only, kept across restarts: {"name": {"command": "...", "args": [...], "env": {...}}} or {"name": {"type": "http", "url": "..."}}. Stored in Neural\'s database, so prefer servers that read their keys from their own config over keys in env' },
     fresh_context: { type: 'boolean', description: 'Near a full context, have it write a handoff note and restart it fresh instead of letting Claude Code compact (default off for workers)' },
@@ -76,14 +77,15 @@ const ORCHESTRATOR_TOOLS = [
   tool('list_templates', 'List the role templates spawn_session can start a session from (template: "<name>"): each one\'s model, effort, MCP servers, priority, handoff threshold and starting instructions.', {}),
   tool('set_template', 'Add, edit or remove a role template for spawn_session. Fields are merged into what it has (a null field removes that field) unless replace is true.', {
     name: str('Template name: lowercase letters, digits, - or _'),
-    fields: { type: 'object', description: '{"description", "model", "effort", "mcp_servers", "priority": "high|normal|low", "fresh_context": bool, "fresh_at_percent", "fresh_at_tokens", "instructions": text sent first to every session started from it}' },
+    fields: { type: 'object', description: '{"description", "provider": "anthropic|fireworks", "model", "effort", "mcp_servers", "priority": "high|normal|low", "fresh_context": bool, "fresh_at_percent", "fresh_at_tokens", "instructions": text sent first to every session started from it}' },
     replace: { type: 'boolean', description: 'Replace the template with these fields instead of merging' },
     remove: { type: 'boolean', description: 'Remove the template' },
   }, ['name']),
-  tool('set_model', 'Change the model and/or effort a session runs on, kept across restarts. An idle session is restarted with it at once (its conversation resumes); a busy one switches after its turn. Use "default" to go back to Claude Code\'s default.', {
+  tool('set_model', 'Change the model, effort and/or provider a session runs on, kept across restarts. An idle session is restarted with it at once (its conversation resumes); a busy one switches after its turn. Use "default" to go back to Claude Code\'s default.', {
     name: str('Session name'),
-    model: str('Alias (sonnet, opus, haiku), full model name, or "default"'),
+    model: str('Alias (sonnet, opus, haiku), full model name, or "default"; on fireworks a Fireworks model name'),
     effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max', 'default'] },
+    provider: { type: 'string', enum: ['anthropic', 'fireworks'], description: 'Who runs the model, kept across restarts. anthropic (default): Claude, on the Claude plan. fireworks: an open model on Fireworks, paid per token and not counted against the Claude windows; give model as a Fireworks name (deepseek-v4p1-flash, the default: cheap and fast, for mechanical work; kimi-k3p1-pro: more judgment, slower). No WebSearch there, and messages reach it typed into its terminal, so they wait while it is busy' },
   }, ['name']),
   tool('set_mcp_servers', 'Add, change or remove extra MCP servers on a session (kept across restarts). Merged into what it has; a null config removes that server. An idle session is restarted with them at once (its conversation resumes); a busy one after its turn.', {
     name: str('Session name'),

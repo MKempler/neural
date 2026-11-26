@@ -44,6 +44,8 @@ Object.assign(process.env, {
   NEURAL_DISPLAY_NAME: 'Ada',
   NEURAL_MAX_UPLOAD_MB: '5',
   NEURAL_BACKUPS: 'off',
+  // Stands in for the Keychain lookup of a provider's key.
+  NEURAL_KEY_COMMAND: 'echo test-key',
   NEURAL_ACK_TIMEOUT: '2',
   NEURAL_RETRY_MS: '300',
   NEURAL_RECONCILE_MS: '300',
@@ -1234,6 +1236,49 @@ test('a session can be started on a model and effort, kept across restarts, and 
   await until('restarted on the default', async () => /resumed .* model=default effort=low/.test((await get('/api/screen/cheap')).screen))
   await idle('cheap')
   await (await import('../server/src/spawner.ts')).removeSession('cheap')
+  await idle('main')
+})
+
+test('a session can run on another provider: its key is read in the pane, messages are typed in, and wait while it is busy', async () => {
+  await idle('main')
+  const tool = async (name: string, args: unknown) => {
+    const sent = await say('main', `tool ${name} ${JSON.stringify(args)}`)
+    return (await messageWhere(`${name} result`, m => m.from_name === 'main' && m.in_reply_to === sent.id)).body as string
+  }
+  assert.match(await tool('spawn_session', { name: 'fw', cwd: tmp, provider: 'openai' }), /^ERROR provider must be one of anthropic, fireworks/)
+  assert.match(await tool('spawn_session', { name: 'fw', cwd: tmp, provider: 'fireworks', model: 'Bad/Model' }), /^ERROR model for fireworks/)
+  await tool('spawn_session', { name: 'fw', cwd: tmp, provider: 'fireworks', model: 'kimi-k3p1-pro', initial_prompt: 'hi fw' })
+  await messageWhere('fw answers a typed message', m => m.from_name === 'fw' && m.body === 'typed 1: hi fw')
+  await idle('fw')
+  const screen = (await get('/api/screen/fw')).screen
+  assert.match(screen, /model=default .* base=https:\/\/api\.fireworks\.ai\/inference env_model=accounts\/fireworks\/models\/kimi-k3p1-pro key=test/)
+  const { mux } = await import('../server/src/spawner.ts')
+  assert.ok(!(await mux.capture('fw', 500)).includes('test-key'), 'the key is not in the terminal')
+  const { sessions, db } = await import('../server/src/db.ts')
+  assert.equal(sessions.get('fw')?.provider, 'fireworks')
+  assert.equal(sessions.get('fw')?.launch_model, 'accounts/fireworks/models/kimi-k3p1-pro')
+  assert.match(await tool('list_sessions', {}), /"name": "fw",[^}]*"provider": "fireworks"/)
+  // Busy: messages wait, then go in together once the turn ends.
+  const { handleHook } = await import('../server/src/router.ts')
+  handleHook('fw', 'UserPromptSubmit', { prompt: 'working on something' })
+  const a = await say('fw', 'first')
+  const b = await say('fw', 'second')
+  await new Promise(r => setTimeout(r, 1500))
+  const state = (id: number) => (db.prepare('SELECT state FROM outbox WHERE message_id = ?').get(id) as any)?.state
+  assert.equal(state(a.id), 'pending')
+  assert.equal(state(b.id), 'pending')
+  handleHook('fw', 'Stop', { last_assistant_message: 'Done.' })
+  await messageWhere('both typed in at once', m => m.from_name === 'fw' && m.body === 'typed 2: first | second')
+  await idle('fw')
+  // Back to Anthropic: the Fireworks model is dropped, Channels come back.
+  assert.match(await tool('set_model', { name: 'fw', provider: 'anthropic' }), /Restarted with it now/)
+  await until('restarted on anthropic', async () => /resumed .* model=default effort=default servers=neural$/m.test((await get('/api/screen/fw')).screen))
+  assert.equal(sessions.get('fw')?.launch_model, null)
+  await idle('fw')
+  await say('fw', 'by channel')
+  await messageWhere('fw answers by channel', m => m.from_name === 'fw' && m.body === 'echo: by channel')
+  await idle('fw')
+  await (await import('../server/src/spawner.ts')).removeSession('fw')
   await idle('main')
 })
 

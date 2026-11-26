@@ -110,6 +110,12 @@ All sessions share one plan, so its 5-hour and weekly limits are the main constr
 - Run routine work (pipelines, formatting, simple edits) on a cheaper model: `spawn_session(..., model:
   "sonnet" or "haiku", effort: "low")`, or `set_model(name, model, effort)` on an existing session. The choice
   is kept across restarts; `list_sessions` shows it. Keep demanding work on the default.
+- Work off the Claude plan entirely: `spawn_session(..., provider: "fireworks", model: "deepseek-v4p1-flash")`
+  (cheap and fast, mechanical work) or `"kimi-k3p1-pro"` (more judgment, slower), or `set_model(name, provider:
+  "fireworks")`; `provider: "anthropic"` switches back. It is paid per token and doesn't count against the
+  windows: `list_sessions` shows `provider_spend` and each session's `spend`. Such a session has no WebSearch,
+  and your messages reach it typed into its terminal, so they wait while it is busy. Keep sign-offs, shipped
+  code and taste on Claude.
 - Near a limit, finish or pause what is running rather than starting new sessions, and tell the user what you
   paused.
 

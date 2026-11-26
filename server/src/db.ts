@@ -298,6 +298,18 @@ export const usageLog = {
   prune: (before: string) => q('DELETE FROM usage_log WHERE ts < ?').run(before),
 }
 
+export const providerUsage = {
+  add: (r: { session: string; provider: string; model: string; day: string; input: number; cached: number; output: number; cost: number }) =>
+    q(`INSERT INTO provider_usage (session, provider, model, day, input, cached, output, cost, replies) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+       ON CONFLICT(session, provider, model, day) DO UPDATE SET input = input + excluded.input, cached = cached + excluded.cached,
+       output = output + excluded.output, cost = cost + excluded.cost, replies = replies + 1`)
+      .run(r.session, r.provider, r.model, r.day, r.input, r.cached, r.output, r.cost),
+  /** Totals per provider and session from a UTC day (YYYY-MM-DD) on. */
+  since: (day: string) => q<{ session: string; provider: string; input: number; cached: number; output: number; cost: number }>(
+    `SELECT session, provider, SUM(input) AS input, SUM(cached) AS cached, SUM(output) AS output, SUM(cost) AS cost
+     FROM provider_usage WHERE day >= ? GROUP BY session, provider ORDER BY cost DESC`).all(day),
+}
+
 export const events = {
   // Hook payloads carry prompts and tool input, so they are redacted like everything else that's kept.
   add: (session: string | null, event: string, payload: unknown) =>

@@ -6,7 +6,7 @@ import { db, sessions, outbox } from './db.ts'
 import { broadcast } from './live.ts'
 import { clean } from './redact.ts'
 import { noteModel, turnFailed } from './router.ts'
-import { logOutside } from './usage.ts'
+import { logOutside, meter } from './usage.ts'
 import { jobAt } from './jobs.ts'
 
 // Archives Claude Code transcripts into the hub database so they stay searchable after Claude Code's own
@@ -133,8 +133,9 @@ function ingestLines(lines: string[], project: string, names: Map<string, string
         const recent = Date.now() - Date.parse(entry.timestamp ?? '') < 15 * 60_000
         if (owner && recent) failures.set(owner, { text: errorText(entry), kind: String(entry.error ?? '') })
       }
-      // Not one of Neural's sessions (a headless run, say): its usage still counts against the plan.
-      if (entry.type === 'assistant' && !entry.isApiErrorMessage && nameFor(entry.sessionId, names) === null) logOutside(entry, jobAt)
+      // Another provider's reply is metered at its prices. Otherwise, not one of Neural's sessions (a headless run,
+      // say): its usage still counts against the plan.
+      if (entry.type === 'assistant' && !entry.isApiErrorMessage && !meter(entry, nameFor(entry.sessionId, names), jobAt) && nameFor(entry.sessionId, names) === null) logOutside(entry, jobAt)
       const info = modelInfo(entry)
       if (info) {
         const owner = nameFor(entry.sessionId, names)
@@ -265,9 +266,7 @@ export function seedModels() {
           sawReply = true
           if (entry.isApiErrorMessage || entry.message?.model === '<synthetic>') newestError = { text: errorText(entry), kind: String(entry.error ?? '') }
         }
-        // Not one of Neural's sessions (a headless run, say): its usage still counts against the plan.
-      if (entry.type === 'assistant' && !entry.isApiErrorMessage && nameFor(entry.sessionId, names) === null) logOutside(entry, jobAt)
-      const info = modelInfo(entry)
+        const info = modelInfo(entry)
         model ??= info?.model
         effort ??= info?.effort
         if (model && effort && sawReply) break

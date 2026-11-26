@@ -81,14 +81,19 @@ export function hasKey(p: Provider): Promise<boolean> {
   return new Promise(resolve => execFile('security', ['find-generic-password', '-s', p.keychain], err => resolve(!err)))
 }
 
-/** List-price cost of one reply's usage. These endpoints count cached tokens inside input_tokens. */
+/** The provider a model id belongs to (by its prefix), if not Anthropic's. */
+export function forModel(model: string | null | undefined): Provider | null {
+  return (model && Object.values(PROVIDERS).find(p => model.startsWith(p.modelPrefix))) || null
+}
+
+/** List-price cost of one reply's usage, as Claude Code records it in the transcript (input_tokens leaves out
+ *  cache reads, as in Anthropic's API). Claude Code's own cost figure uses Claude prices and is far too high. */
 export function costOf(p: Provider, model: string, u: any) {
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
   const short = model.startsWith(p.modelPrefix) ? model.slice(p.modelPrefix.length) : model
   const price = p.prices[short] ?? p.prices[p.defaultModel]
   const cached = n(u?.cache_read_input_tokens)
-  const total = n(u?.input_tokens)
-  const fresh = (total >= cached ? total - cached : total) + n(u?.cache_creation_input_tokens)
+  const fresh = n(u?.input_tokens) + n(u?.cache_creation_input_tokens)
   const output = n(u?.output_tokens)
   return { input: fresh, cached, output, cost: (fresh * price.input + cached * price.cached + output * price.output) / 1e6 }
 }

@@ -3,7 +3,8 @@
 // and, for claude.ai subscriptions, how much of the 5-hour and weekly usage limits is used. The latest
 // readings are kept and sent to the app; the answer is the line shown at the bottom of the terminal.
 import { config } from './config.ts'
-import { sessions, usage as store, usageLog, prefs } from './db.ts'
+import { sessions, usage as store, usageLog, prefs, providerUsage } from './db.ts'
+import * as providers from './providers.ts'
 import { broadcast } from './live.ts'
 import { when } from './clock.ts'
 
@@ -57,7 +58,9 @@ export function record(name: string, payload: any): string {
   const cents = (c: number | null | undefined) => (c == null ? null : Math.round(c * 100))
   if (!before || before.used !== ctx.used || before.size !== ctx.size || cents(before.cost) !== cents(ctx.cost)) {
     // What it spent since the last reading. A new process (a restart) counts from zero again.
-    if (ctx.cost != null) {
+    // On another provider the figure is Claude Code's guess at Claude prices, and none of it is Claude plan use:
+    // its real cost is metered from the transcript (meter below).
+    if (ctx.cost != null && !providers.of(sessions.get(name)?.provider)) {
       const spent = before?.cost != null && ctx.cost >= before.cost ? ctx.cost - before.cost : ctx.cost
       if (spent > 0) logSpend(name, spent)
     }
@@ -197,6 +200,47 @@ export function costOf(model: string, u: any): number {
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
   const units = n(u?.input_tokens) + 5 * n(u?.output_tokens) + 1.25 * n(u?.cache_creation_input_tokens) + 0.1 * n(u?.cache_read_input_tokens)
   return (units * per) / 1e6
+}
+
+// ---------------------------------------------------------------------------------------------
+// Spend on other providers, from each transcript reply's token counts at the provider's list prices. Kept apart
+// from the Claude windows. Replies from outside Neural's sessions count too, under job:<name> or other:<folder>.
+
+const metered = new Set<string>()
+
+/** Meter a transcript reply if it came from another provider's model; true if it did (it isn't Claude use). */
+export function meter(entry: any, owner: string | null, jobFor: (cwd: string, at: string) => string | null): boolean {
+  const msg = entry?.message
+  const p = providers.forModel(msg?.model)
+  if (!p) return false
+  if (!msg.usage || !msg.id || metered.has(msg.id)) return true
+  // A reply is written as several lines (one per content block), each repeating its usage: count it once.
+  metered.add(msg.id)
+  if (metered.size > 20_000) metered.clear()
+  const at = String(entry.timestamp ?? new Date().toISOString())
+  const cwd = String(entry.cwd ?? '')
+  const job = owner ? null : cwd ? jobFor(cwd, at) : null
+  const session = owner ?? (job ? `job:${job}` : `other:${cwd ? cwd.split('/').filter(Boolean).pop() : 'unknown'}`)
+  const c = providers.costOf(p, String(msg.model), msg.usage)
+  providerUsage.add({ session, provider: p.name, model: String(msg.model).slice(p.modelPrefix.length), day: at.slice(0, 10), ...c })
+  return true
+}
+
+const DAY = 86400_000
+const day = (t: number) => new Date(t).toISOString().slice(0, 10)
+const usd = (n: number) => Math.round(n * 1000) / 1000
+
+/** Spend per provider (today, last 7 days, last 30 days, UTC days) and per session (last 30 days), for list_sessions. */
+export function providerSpend(now = Date.now()) {
+  const month = providerUsage.since(day(now - 29 * DAY))
+  if (!month.length) return null
+  const week = providerUsage.since(day(now - 6 * DAY))
+  const today = providerUsage.since(day(now))
+  const sum = (rows: typeof month, p: string) => usd(rows.filter(r => r.provider === p).reduce((t, r) => t + r.cost, 0))
+  const totals: Record<string, { today_usd: number; week_usd: number; month_usd: number }> = {}
+  for (const p of new Set(month.map(r => r.provider))) totals[p] = { today_usd: sum(today, p), week_usd: sum(week, p), month_usd: sum(month, p) }
+  const bySession = new Map(month.map(r => [r.session, { provider: r.provider, usd_30d: usd(r.cost), tokens: { input: r.input, cached: r.cached, output: r.output } }]))
+  return { totals, bySession, note: 'List-price estimates from transcript token counts; the provider\'s billing page has the real figure.' }
 }
 
 /** A transcript reply from outside Neural's sessions: log its estimated cost against the job (or folder). */

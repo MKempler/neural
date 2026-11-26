@@ -772,7 +772,8 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
       // Fields at their default (no note, normal priority, default launch, no usage, ...) are left out to keep the
       // reply short; the orchestrator calls this often.
       const all = usage.shares()
-      return { usage: usage.outlook(), sessions: sessions.all().map(s => {
+      const spend = usage.providerSpend()
+      return { usage: usage.outlook(), ...(spend ? { provider_spend: { ...spend.totals, note: spend.note } } : {}), sessions: sessions.all().map(s => {
         const share = usage.shareOf(s.name, all)
         return compact({
           name: s.name, role: s.role, status: s.status, cwd: s.cwd,
@@ -782,6 +783,7 @@ export async function handleTool(caller: string, tool: string, a: any): Promise<
           priority: s.priority === 'normal' ? undefined : s.priority,
           usage_share: share.five_hour || share.week ? share : undefined,
           provider: s.provider ?? undefined,
+          spend: spend?.bySession.get(s.name),
           model: s.model, effort: s.effort,
           launch: s.launch_model || s.launch_effort ? { model: s.launch_model ?? 'default', effort: s.launch_effort ?? 'default' } : undefined,
           mcp_servers: s.mcp_servers ? Object.keys(JSON.parse(s.mcp_servers)) : undefined,

@@ -1813,6 +1813,31 @@ test("headless runs' usage is counted from their transcripts, under the job that
   jobs.removeJob('pipeline')
 })
 
+test('replies from another provider are metered at its prices, apart from the Claude windows', async () => {
+  const { db } = await import('../server/src/db.ts')
+  const model = 'accounts/fireworks/models/deepseek-v4p1-flash'
+  const usage = { input_tokens: 500_000, output_tokens: 100_000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 0 }
+  const reply = (uuid: string, id: string) => JSON.stringify({
+    type: 'assistant', uuid, sessionId: 'fw-headless', cwd: '/work/fwbatch', timestamp: new Date().toISOString(),
+    message: { id, role: 'assistant', model, content: [{ type: 'text', text: 'done' }], usage },
+  })
+  const dir = path.join(tmp, 'transcripts', 'fw-project')
+  fs.mkdirSync(dir, { recursive: true })
+  // One reply written as two lines (counted once), and a second reply.
+  fs.writeFileSync(path.join(dir, 'fw-headless.jsonl'), [reply('f1', 'fmsg_1'), reply('f2', 'fmsg_1'), reply('f3', 'fmsg_2')].join('\n') + '\n')
+  const row: any = await until('metered', () => db.prepare("SELECT * FROM provider_usage WHERE session = 'other:fwbatch'").get())
+  // 0.5M fresh input at $0.30, 1M cached at $0.006, 0.1M output at $1.20, twice.
+  assert.equal(row.replies, 2)
+  assert.equal(row.cached, 2_000_000)
+  assert.ok(Math.abs(row.cost - 2 * (0.15 + 0.006 + 0.12)) < 1e-9, String(row.cost))
+  assert.equal(db.prepare("SELECT 1 FROM usage_log WHERE session = 'other:fwbatch'").get(), undefined)
+  await idle('main')
+  const sent = await say('main', 'tool list_sessions {}')
+  const listed = (await messageWhere('list result', m => m.from_name === 'main' && m.in_reply_to === sent.id)).body as string
+  assert.match(listed, /"provider_spend": \{\s*"fireworks": \{\s*"today_usd": 0\.552,\s*"week_usd": 0\.552,\s*"month_usd": 0\.552/)
+  await idle('main')
+})
+
 test('uploads over the size limit are refused', async () => {
   const res = await upload('big.bin', Buffer.alloc(6 * 2 ** 20), 'application/octet-stream')
   assert.equal(res.status, 413)

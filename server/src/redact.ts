@@ -16,6 +16,7 @@ const RULES: Rule[] = [
   { kind: 'Stripe key', re: /\b[sr]k_live_[A-Za-z0-9]{20,}/g },
   { kind: 'AWS key', re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { kind: 'Google API key', re: /\bAIza[0-9A-Za-z_-]{35}/g },
+  { kind: 'Fireworks key', re: /\bfw_[A-Za-z0-9]{20,}/g },
   { kind: 'npm token', re: /\bnpm_[A-Za-z0-9]{36}/g },
   { kind: 'JWT', re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   // user:password@host in a URL: only the password goes.
